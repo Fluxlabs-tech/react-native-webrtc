@@ -3,13 +3,15 @@ require 'json'
 package = JSON.parse(File.read(File.join(__dir__, 'package.json')))
 
 Pod::Spec.new do |s|
-  s.name                = package['name']
+  # Pinned: the npm name is scoped, which is not a valid pod name. Keeping the
+  # upstream pod name also keeps the `react_native_webrtc` module name.
+  s.name                = 'react-native-webrtc'
   s.version             = package['version']
   s.summary             = package['description']
-  s.homepage            = 'https://github.com/react-native-webrtc/react-native-webrtc'
+  s.homepage            = 'https://github.com/Fluxlabs-tech/react-native-webrtc'
   s.license             = package['license']
   s.author              = 'https://github.com/react-native-webrtc/react-native-webrtc/graphs/contributors'
-  s.source              = { :git => 'git@github.com:react-native-webrtc/react-native-webrtc.git', :tag => 'release #{s.version}' }
+  s.source              = { :git => 'https://github.com/Fluxlabs-tech/react-native-webrtc.git', :tag => "v#{s.version}" }
   s.requires_arc        = true
 
   s.platforms           = { :ios => '12.0', :osx => '10.13', :tvos => '16.0' }

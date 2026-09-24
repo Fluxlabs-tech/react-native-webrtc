@@ -150,13 +150,13 @@ type CommandName = 'startPictureInPicture' | 'stopPictureInPicture';
 type RefType = React.ComponentRef<typeof NativeRTCVideoView>;
 
 class RTCView extends React.PureComponent<RTCVideoViewProps> {
-    private readonly ref: React.RefObject<RefType | null>;
+    // Inferred: createRef's type differs between the React 17 and React 19 typings.
+    private readonly ref = React.createRef<RefType>();
 
     constructor(props: RTCVideoViewProps) {
         super(props);
         this.onPictureInPictureChange = this.onPictureInPictureChange.bind(this);
         this.onDimensionsChange = this.onDimensionsChange.bind(this);
-        this.ref = React.createRef<RefType>();
     }
 
     /**
