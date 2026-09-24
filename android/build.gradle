@@ -33,4 +33,7 @@ dependencies {
     implementation "com.facebook.react:react-android:+"
     api 'org.jitsi:webrtc:124.+'
     implementation "androidx.core:core:1.7.0"
+    // Picture-in-picture listens to the activity: mode changes, the leave hint and, from 1.13,
+    // the start of the transition (Android 15+). 1.13 needs compileSdk 36.
+    implementation "androidx.activity:activity:1.13.0"
 }

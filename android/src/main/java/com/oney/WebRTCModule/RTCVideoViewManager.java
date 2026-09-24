@@ -9,7 +9,6 @@ import com.facebook.react.common.MapBuilder;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.facebook.react.uimanager.ViewGroupManager;
 import com.facebook.react.uimanager.annotations.ReactProp;
-import com.facebook.react.uimanager.events.RCTEventEmitter;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -22,8 +21,8 @@ public class RTCVideoViewManager extends ViewGroupManager<WebRTCView> {
         return REACT_CLASS;
     }
 
-    public final int COMMAND_ENTER_PIP = 1;
-    public final int COMMAND_EXIT_PIP = 2;
+    public static final int COMMAND_ENTER_PIP = 1;
+    public static final int COMMAND_EXIT_PIP = 2;
 
     @Override
     public WebRTCView createViewInstance(ThemedReactContext context) {
@@ -85,33 +84,32 @@ public class RTCVideoViewManager extends ViewGroupManager<WebRTCView> {
     }
 
     /**
-     * Sets whether Picture-in-Picture (PiP) will be handled by this {@code WebRTCView}.
+     * Sets whether a specific {@link WebRTCView} handles picture-in-picture. Only one view
+     * should: the most recently enabled one does.
      *
-     * This corresponds to the {@code pictureInPictureEnabled} prop in the JavaScript
-     * counterpart of {@code WebRTCView} (i.e. {@code RTCView}).
-     *
-     * @param view The {@code WebRTCView} on which the {@code pictureInPictureEnabled} flag is to be set.
-     * @param pictureInPictureEnabled Whether this view should handle platform Picture-In-Picture API.
+     * @param view The {@code WebRTCView} on which the flag is to be set.
+     * @param enabled Whether the view handles picture-in-picture.
      */
     @ReactProp(name = "pictureInPictureEnabled", defaultBoolean = false)
-    public void setPictureInPictureEnabled(WebRTCView view, Boolean pictureInPictureEnabled) {
-        view.setPictureInPictureEnabled(pictureInPictureEnabled);
-    }
-    /**
-     * Sets whether Picture-in-Picture (PiP) mode should automatically be entered
-     * when certain conditions are met (e.g., user navigates away or app goes to background).
-     *
-     * This corresponds to the {@code isAutoEnterEnabled} prop in the JavaScript
-     * counterpart of {@code WebRTCView} (i.e. {@code RTCView}).
-     *
-     * @param view The {@code WebRTCView} on which the {@code isAutoEnterEnabled} flag is to be set.
-     * @param autoStartPictureInPicture Whether PiP should auto-enter on supported platforms.
-     */
-    @ReactProp(name = "autoStartPictureInPicture", defaultBoolean = true)
-    public void setAutoStartPictureInPicture(WebRTCView view, Boolean autoStartPictureInPicture) {
-        view.setAutoStartPictureInPicture(autoStartPictureInPicture);
+    public void setPictureInPictureEnabled(WebRTCView view, boolean enabled) {
+        view.setPictureInPictureEnabled(enabled);
     }
 
+    /**
+     * Sets whether leaving the app enters picture-in-picture by itself.
+     *
+     * @param view The {@code WebRTCView} on which the flag is to be set.
+     * @param autoStart Whether picture-in-picture starts automatically.
+     */
+    @ReactProp(name = "autoStartPictureInPicture", defaultBoolean = true)
+    public void setAutoStartPictureInPicture(WebRTCView view, boolean autoStart) {
+        view.setAutoStartPictureInPicture(autoStart);
+    }
+
+    /**
+     * Sets the shape of the picture-in-picture window, as {@code {width, height}}. Only the ratio
+     * matters on Android.
+     */
     @ReactProp(name = "pictureInPicturePreferredSize")
     public void setPictureInPicturePreferredSize(WebRTCView view, @Nullable ReadableMap size) {
         view.setPictureInPicturePreferredSize(size);
@@ -125,29 +123,21 @@ public class RTCVideoViewManager extends ViewGroupManager<WebRTCView> {
 
     @Override
     public void receiveCommand(@NonNull WebRTCView view, String commandId, @Nullable ReadableArray args) {
-        super.receiveCommand(view, commandId, args);
-        int commandIdInt = Integer.parseInt(commandId);
-
-        switch (commandIdInt) {
-            case COMMAND_ENTER_PIP:
+        // The new architecture passes the command's number as a string; accept its name too.
+        switch (commandId) {
+            case "startPictureInPicture":
+            case "" + COMMAND_ENTER_PIP:
                 view.enterPictureInPicture();
                 break;
-            case COMMAND_EXIT_PIP:
-                // Not supported in android
+            case "stopPictureInPicture":
+            case "" + COMMAND_EXIT_PIP:
+                // Android has no call to leave picture-in-picture; the user does.
                 break;
-            default: {
-            }
+            default:
+                super.receiveCommand(view, commandId, args);
         }
     }
 
-    @Override
-    public Map getExportedCustomBubblingEventTypeConstants() {
-        return MapBuilder.builder()
-                .put(WebRTCView.onPictureInPictureChangeEventName,
-                        MapBuilder.of("phasedRegistrationNames",
-                                MapBuilder.of("bubbled", WebRTCView.onPictureInPictureChangeEventName)))
-                .build();
-    }
     /**
      * Sets the callback for when video dimensions change.
      *
@@ -161,10 +151,12 @@ public class RTCVideoViewManager extends ViewGroupManager<WebRTCView> {
 
     @Override
     public Map<String, Object> getExportedCustomDirectEventTypeConstants() {
-        Map<String, Object> eventTypeConstants = new HashMap<>();
-        Map<String, String> dimensionsChangeEvent = new HashMap<>();
-        dimensionsChangeEvent.put("registrationName", "onDimensionsChange");
-        eventTypeConstants.put("onDimensionsChange", dimensionsChangeEvent);
+        // Added to the base view manager's events, not in place of them.
+        Map<String, Object> base = super.getExportedCustomDirectEventTypeConstants();
+        Map<String, Object> eventTypeConstants = base != null ? new HashMap<>(base) : new HashMap<>();
+        eventTypeConstants.put("onDimensionsChange", MapBuilder.of("registrationName", "onDimensionsChange"));
+        eventTypeConstants.put(
+                PictureInPictureChangeEvent.EVENT_NAME, MapBuilder.of("registrationName", "onPictureInPictureChange"));
         return eventTypeConstants;
     }
 }

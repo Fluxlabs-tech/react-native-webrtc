@@ -7,20 +7,19 @@ import android.graphics.Color;
 import android.graphics.Point;
 import android.util.Log;
 import android.util.Rational;
-import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
+import android.view.ViewParent;
 
 import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
-import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentActivity;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.uimanager.UIManagerHelper;
+import com.facebook.react.uimanager.events.EventDispatcher;
 import com.facebook.react.uimanager.events.RCTEventEmitter;
 
 import org.webrtc.EglBase;
@@ -32,11 +31,10 @@ import org.webrtc.RendererCommon.ScalingType;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoTrack;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public class WebRTCView extends ViewGroup implements PictureInPictureHelperListener {
+public class WebRTCView extends ViewGroup {
     /**
      * The scaling type to be utilized by default.
      *
@@ -155,41 +153,10 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
     private VideoTrack videoTrack;
 
     /**
-     * Helper tag to safely attach and detach PictureInPictureHelperFragment
+     * Android picture-in-picture for this view, off until the {@code pictureInPictureEnabled}
+     * prop turns it on.
      */
-    @Nullable
-    private String pictureInPictureHelperTag;
-
-    /**
-     * Save the rootView's children original visibility state.
-     */
-    private final ArrayList<Integer> rootViewChildrenOriginalVisibility = new ArrayList<>();
-
-    /**
-     * Whether this WebRTCView should handle Picture-In-Picture.
-     */
-    private Boolean pictureInPictureEnabled = false;
-
-    /**
-     * Whether this WebRTCView should handle Picture-In-Picture.
-     */
-    private Boolean werePictureInPictureEnabled = false;
-
-    /**
-     * Whether autoEnter Picture-In-Picture should be apply.
-     */
-    private Boolean autoStartPictureInPicture = true;
-
-    /**
-     * Event name to send to onPictureInPictureChange callback.
-     */
-    static String onPictureInPictureChangeEventName = "onPictureInPictureChange";
-
-    /**
-     * The preferredAspectRatio to apply in Picture-In-Picture Mode.
-     */
-    @Nullable
-    private Rational preferredAspectRatio;
+    private final PictureInPictureController pictureInPicture;
 
     /**
      * The callback to be called when video dimensions change.
@@ -201,6 +168,8 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
 
         surfaceViewRenderer = new SurfaceViewRenderer(context);
         addView(surfaceViewRenderer);
+        pictureInPicture =
+                new PictureInPictureController(this, surfaceViewRenderer, this::dispatchPictureInPictureChange);
 
         setMirror(false);
         setScalingType(DEFAULT_SCALING_TYPE);
@@ -272,8 +241,12 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
             // infrastructure hooked up while this View is not attached to a
             // window. Additionally, a memory leak was solved in a similar way
             // on iOS.
+            if (surfaceViewRenderer.getParent() == null) {
+                // Picture-in-picture had moved it into the window when this view detached.
+                addView(surfaceViewRenderer, 0);
+            }
             tryAddRendererToVideoTrack();
-            attachPictureInPictureHelperFragment();
+            pictureInPicture.onAttachedToWindow();
         } finally {
             super.onAttachedToWindow();
         }
@@ -287,8 +260,8 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
             // infrastructure hooked up while this View is not attached to a
             // window. Additionally, a memory leak was solved in a similar way
             // on iOS.
+            pictureInPicture.onDetachedFromWindow();
             removeRendererFromVideoTrack();
-            detachPictureInPictureHelperFragment();
         } finally {
             super.onDetachedFromWindow();
         }
@@ -336,6 +309,7 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
             // The onFrameResolutionChanged method call executes on the
             // surfaceViewRenderer's render Thread.
             post(requestSurfaceViewRendererLayoutRunnable);
+            post(pictureInPicture::onVideoChanged);
 
             // Call the onDimensionsChange callback if it's enabled
             if (onDimensionsChangeEnabled) {
@@ -359,6 +333,10 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
 
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        if (surfaceViewRenderer.getParent() != this) {
+            // Picture-in-picture has it filling the window, which lays it out.
+            return;
+        }
         int height = b - t;
         int width = r - l;
 
@@ -458,7 +436,7 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
         surfaceViewRenderer.requestLayout();
         // The above is not enough though when the video frame's dimensions or
         // rotation change. The following will suffice.
-        if (!ViewCompat.isInLayout(this)) {
+        if (surfaceViewRenderer.getParent() == this && !ViewCompat.isInLayout(this)) {
             onLayout(
                     /* changed */ false, getLeft(), getTop(), getRight(), getBottom());
         }
@@ -510,6 +488,7 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
         // Both this instance ant its SurfaceViewRenderer take the value of
         // their scalingType properties into account upon their layouts.
         requestSurfaceViewRendererLayout();
+        pictureInPicture.onVideoChanged();
     }
 
     /**
@@ -579,6 +558,7 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
                     cleanSurfaceViewRenderer();
                 }
             }
+            pictureInPicture.onVideoChanged();
         }
     }
 
@@ -645,186 +625,97 @@ public class WebRTCView extends ViewGroup implements PictureInPictureHelperListe
     }
 
     @Nullable
-    private Activity getCurrentActivity() {
+    Activity getCurrentActivity() {
         ReactContext reactContext = (ReactContext) getContext();
         return reactContext.getCurrentActivity();
     }
 
+    ScalingType getScalingType() {
+        synchronized (layoutSyncRoot) {
+            return scalingType;
+        }
+    }
+
+    /**
+     * The shape of the video as displayed, rotation applied, or {@code null} before the first
+     * frame.
+     */
     @Nullable
-    private ViewGroup getRootViewGroup() {
-        Activity currentActivity = getCurrentActivity();
-        if (currentActivity == null) return null;
-        return currentActivity.getWindow().getDecorView().findViewById(android.R.id.content);
-    }
-
-    void setPictureInPictureEnabled(Boolean pictureInPictureEnabled) {
-        Activity currentActivity = getCurrentActivity();
-        if (currentActivity == null) return;
-
-        this.pictureInPictureEnabled = pictureInPictureEnabled;
-        if (pictureInPictureEnabled) {
-            werePictureInPictureEnabled = true;
-        } else if (werePictureInPictureEnabled) {
-            PictureInPictureUtils.applyAutoEnter(currentActivity, false);
+    Rational getVideoAspectRatio() {
+        synchronized (layoutSyncRoot) {
+            if (frameWidth == 0 || frameHeight == 0) {
+                return null;
+            }
+            return frameRotation % 180 == 0 ? new Rational(frameWidth, frameHeight)
+                                            : new Rational(frameHeight, frameWidth);
         }
-        applyPictureInPictureParams();
     }
 
-    protected void applyPictureInPictureParams() {
-        Activity currentActivity = getCurrentActivity();
-        if (currentActivity == null) return;
+    boolean hasVideoTrack() {
+        return videoTrack != null;
+    }
 
-        if (!pictureInPictureEnabled) {
+    /**
+     * Puts {@link #surfaceViewRenderer} back in this view after picture-in-picture moved it into
+     * the window.
+     */
+    void reattachRenderer() {
+        ViewParent parent = surfaceViewRenderer.getParent();
+        if (parent == this) {
             return;
         }
-
-        PictureInPictureUtils.applySourceRectHint(currentActivity, this);
-        PictureInPictureUtils.applyAutoEnter(currentActivity, autoStartPictureInPicture);
-
-        if (preferredAspectRatio != null) {
-            PictureInPictureUtils.applyAspectRatio(currentActivity, preferredAspectRatio);
-        } else {
-            PictureInPictureUtils.applyAspectRatio(currentActivity, new Rational(getWidth(), getHeight()));
+        if (parent instanceof ViewGroup) {
+            ((ViewGroup) parent).removeView(surfaceViewRenderer);
         }
+        // First, where the constructor put it, ahead of any children React adds.
+        addView(surfaceViewRenderer, 0);
+        requestSurfaceViewRendererLayout();
     }
 
-    void setAutoStartPictureInPicture(Boolean autoStartPictureInPicture) {
-        if (autoStartPictureInPicture == null) {
-            autoStartPictureInPicture = true;
-        }
-        this.autoStartPictureInPicture = autoStartPictureInPicture;
-        applyPictureInPictureParams();
+    /**
+     * Sets whether this view handles picture-in-picture. Only one view should: the most recently
+     * enabled one does.
+     */
+    void setPictureInPictureEnabled(boolean enabled) {
+        pictureInPicture.setEnabled(enabled);
     }
 
+    /** Sets whether leaving the app enters picture-in-picture by itself. */
+    void setAutoStartPictureInPicture(boolean autoStart) {
+        pictureInPicture.setAutoStart(autoStart);
+    }
+
+    /**
+     * Sets the shape of the picture-in-picture window. {@code null} derives it from the view and
+     * its {@code objectFit}.
+     */
     void setPictureInPicturePreferredSize(@Nullable ReadableMap size) {
-        if (size == null) {
-            preferredAspectRatio = null;
-            applyPictureInPictureParams();
-            return;
-        };
-
-        if (!size.hasKey("width")) return;
-        if (size.isNull("width")) return;
-
-        if (!size.hasKey("height")) return;
-        if (size.isNull("height")) return;
-
-        Rational aspectRatio = new Rational(size.getInt("width"), size.getInt("height"));
-
-        if (aspectRatio.isNaN()) return;
-
-        preferredAspectRatio = aspectRatio;
-
-        applyPictureInPictureParams();
+        Rational aspectRatio = null;
+        if (size != null && size.hasKey("width") && size.hasKey("height") && !size.isNull("width")
+                && !size.isNull("height")) {
+            double width = size.getDouble("width");
+            double height = size.getDouble("height");
+            if (width > 0 && height > 0) {
+                aspectRatio = new Rational((int) Math.round(width * 1000), (int) Math.round(height * 1000));
+            }
+        }
+        pictureInPicture.setPreferredAspectRatio(aspectRatio);
     }
 
     void enterPictureInPicture() {
-        Activity currentActivity = getCurrentActivity();
-        if (currentActivity == null) return;
+        pictureInPicture.enterPictureInPicture();
+    }
 
-        if (!pictureInPictureEnabled) {
-            Log.d(TAG, "pictureInPicture is disabled for this RTCView.");
+    private void dispatchPictureInPictureChange(boolean isInPictureInPicture, boolean dismissed) {
+        ReactContext reactContext = (ReactContext) getContext();
+        EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, getId());
+        if (dispatcher == null) {
             return;
         }
-        applyPictureInPictureParams();
-        PictureInPictureUtils.safeEnterPictureInPicture(currentActivity);
+        dispatcher.dispatchEvent(new PictureInPictureChangeEvent(
+                UIManagerHelper.getSurfaceId(this), getId(), isInPictureInPicture, dismissed));
     }
 
-    protected void layoutForPipEnter() {
-        ViewGroup rootViewGroup = getRootViewGroup();
-        if (rootViewGroup == null) return;
-
-        removeView(surfaceViewRenderer);
-
-        for (int i = 0; i < rootViewGroup.getChildCount(); i++) {
-            View child = rootViewGroup.getChildAt(i);
-            if (child != surfaceViewRenderer) {
-                rootViewChildrenOriginalVisibility.add(child.getVisibility());
-                child.setVisibility(View.GONE);
-            }
-        }
-
-        rootViewGroup.addView(surfaceViewRenderer,
-                new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-    }
-
-    protected void layoutForPipExit() {
-        ViewGroup rootViewGroup = getRootViewGroup();
-        if (rootViewGroup == null) return;
-
-        rootViewGroup.removeView(surfaceViewRenderer);
-
-        for (int i = 0; i < rootViewGroup.getChildCount(); i++) {
-            rootViewGroup.getChildAt(i).setVisibility(rootViewChildrenOriginalVisibility.get(i));
-        }
-
-        rootViewChildrenOriginalVisibility.clear();
-
-        addView(surfaceViewRenderer,
-                new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        post(requestSurfaceViewRendererLayoutRunnable);
-    }
-
-    protected void attachPictureInPictureHelperFragment() {
-        Activity currentActivity = getCurrentActivity();
-        if (currentActivity == null) return;
-
-        if (currentActivity instanceof FragmentActivity) {
-            FragmentActivity fragmentActivity = (FragmentActivity) currentActivity;
-            PictureInPictureHelperFragment fragment = new PictureInPictureHelperFragment();
-            pictureInPictureHelperTag = fragment.id;
-            fragment.setListener(this);
-            fragmentActivity.getSupportFragmentManager().beginTransaction().add(fragment, fragment.id).commit();
-        }
-        applyPictureInPictureParams();
-    }
-
-    void detachPictureInPictureHelperFragment() {
-        Activity currentActivity = getCurrentActivity();
-        if (currentActivity == null) return;
-
-        if (currentActivity instanceof FragmentActivity) {
-            FragmentActivity fragmentActivity = (FragmentActivity) currentActivity;
-            Fragment fragment =
-                    fragmentActivity.getSupportFragmentManager().findFragmentByTag(pictureInPictureHelperTag);
-            if (fragment != null) {
-                fragmentActivity.getSupportFragmentManager()
-                        .beginTransaction()
-                        .remove(fragment)
-                        .commitAllowingStateLoss();
-            }
-        }
-
-        if (pictureInPictureEnabled) {
-            PictureInPictureUtils.applyAutoEnter(currentActivity, false);
-        }
-    }
-
-    protected void sendPictureInPictureModeChangeEvent(Boolean isInPictureInPictureMode) {
-        ReactContext reactContext = (ReactContext) getContext();
-        if (reactContext == null) return;
-
-        if (!pictureInPictureEnabled) return;
-
-        WritableMap event = Arguments.createMap();
-        event.putBoolean("isInPictureInPicture", isInPictureInPictureMode);
-
-        reactContext.getJSModule(RCTEventEmitter.class)
-                .receiveEvent(this.getId(), onPictureInPictureChangeEventName, event);
-    }
-
-    @Override
-    public void onPictureInPictureModeChange(Boolean isInPictureInPictureMode) {
-        if (!pictureInPictureEnabled) return;
-
-        sendPictureInPictureModeChangeEvent(isInPictureInPictureMode);
-
-        if (isInPictureInPictureMode) {
-            layoutForPipEnter();
-        } else {
-            layoutForPipExit();
-        }
-    }
     /**
      * Sets whether the onDimensionsChange callback should be called.
      *

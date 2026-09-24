@@ -20,6 +20,9 @@ API_AVAILABLE(ios(15.0))
 
 @property(nonatomic, weak) id<PIPControllerDelegate> delegate;
 
+/** Whether any view's picture-in-picture is showing. Safe to call from any thread. */
++ (BOOL)isAnyPictureInPictureActive;
+
 - (instancetype)initWithSourceView:(UIView *)sourceView;
 - (void)togglePIP;
 - (void)startPIP;

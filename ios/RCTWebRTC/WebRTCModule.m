@@ -1,5 +1,10 @@
 #if !TARGET_OS_OSX
+#import <AVKit/AVKit.h>
 #import <UIKit/UIKit.h>
+#endif
+
+#if !TARGET_OS_OSX
+#import "PIPController.h"
 #endif
 
 #import <React/RCTBridge.h>
@@ -103,6 +108,34 @@ RCT_EXPORT_MODULE();
 
 - (dispatch_queue_t)methodQueue {
     return _workerQueue;
+}
+
+// Picture-in-picture here is the video-call kind, AVPictureInPictureVideoCallViewController,
+// which needs iOS 15.
+// For the moment the app is backgrounded: AppState says "background" whether or not a
+// picture-in-picture window is showing the video.
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(isInPictureInPicture) {
+#if TARGET_OS_OSX
+    return @NO;
+#else
+    if (@available(iOS 15.0, *)) {
+        return @([PIPController isAnyPictureInPictureActive]);
+    }
+    return @NO;
+#endif
+}
+
+RCT_EXPORT_METHOD(isPictureInPictureSupported : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)
+                      reject) {
+#if TARGET_OS_OSX
+    resolve(@NO);
+#else
+    if (@available(iOS 15.0, *)) {
+        resolve(@([AVPictureInPictureController isPictureInPictureSupported]));
+    } else {
+        resolve(@NO);
+    }
+#endif
 }
 
 - (NSArray<NSString *> *)supportedEvents {

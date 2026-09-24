@@ -1,5 +1,8 @@
 package com.oney.WebRTCModule;
 
+import android.app.Activity;
+import android.content.Context;
+import android.os.Build;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
@@ -852,6 +855,28 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
                 stream.removeTrack((VideoTrack) track);
             }
         });
+    }
+
+    /**
+     * Whether the activity is in picture-in-picture. For the moment the app is backgrounded:
+     * Android pauses the activity into PiP, so AppState reports "background" while the video is
+     * still on screen, and that can reach JS before the view's onPictureInPictureChange does.
+     */
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    public boolean isInPictureInPicture() {
+        Activity activity = getCurrentActivity();
+        return activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                && activity.isInPictureInPictureMode();
+    }
+
+    /**
+     * Whether picture-in-picture can start right now: the device supports it and the user has not
+     * turned it off for this app.
+     */
+    @ReactMethod
+    public void isPictureInPictureSupported(Promise promise) {
+        Context context = getCurrentActivity() != null ? getCurrentActivity() : getReactApplicationContext();
+        promise.resolve(PictureInPictureController.isSupported(context));
     }
 
     @ReactMethod

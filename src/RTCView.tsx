@@ -1,7 +1,6 @@
 import React from 'react';
 import {
     findNodeHandle,
-    NativeMethods,
     NativeSyntheticEvent,
     Platform,
     requireNativeComponent,
@@ -103,7 +102,7 @@ interface RTCVideoViewBaseProps extends ViewProps {
 
 interface NativeVideoViewProps extends RTCVideoViewBaseProps {
   onPictureInPictureChange?: (
-    event: NativeSyntheticEvent<{ isInPictureInPicture: boolean }>
+    event: NativeSyntheticEvent<{ isInPictureInPicture: boolean; dismissed?: boolean }>
   ) => void;
 
   /**
@@ -123,9 +122,16 @@ interface RTCVideoViewProps extends RTCVideoViewBaseProps {
   /**
   * Called when entering or exiting Picture-in-Picture mode.
   *
-  * @param {Object} dimensions - The event object containing the new dimensions.
+  * @param {boolean} isInPictureInPicture - Whether the app is now in Picture-in-Picture.
+  * @param {Object} details
+  * @param {boolean} details.dismissed - Android: Picture-in-Picture ended because the user
+  * closed the window, not because they returned to the app. The app is still in the
+  * background, so this is the moment to stop playback. Always false on iOS and on entering.
   */
-  onPictureInPictureChange?: (isInPictureInPicture: boolean) => void;
+  onPictureInPictureChange?: (
+    isInPictureInPicture: boolean,
+    details: { dismissed: boolean }
+  ) => void;
   /**
   * Callback function that is called when the dimensions of the video change.
   *
@@ -141,10 +147,10 @@ const NativeRTCVideoView =
 
 type CommandName = 'startPictureInPicture' | 'stopPictureInPicture';
 
-type RefType = React.Component<NativeVideoViewProps> & Readonly<NativeMethods>;
+type RefType = React.ComponentRef<typeof NativeRTCVideoView>;
 
 class RTCView extends React.PureComponent<RTCVideoViewProps> {
-    private readonly ref: React.RefObject<RefType>;
+    private readonly ref: React.RefObject<RefType | null>;
 
     constructor(props: RTCVideoViewProps) {
         super(props);
@@ -205,10 +211,11 @@ class RTCView extends React.PureComponent<RTCVideoViewProps> {
     }
 
     private onPictureInPictureChange(
-        event: NativeSyntheticEvent<{ isInPictureInPicture: boolean }>
+        event: NativeSyntheticEvent<{ isInPictureInPicture: boolean; dismissed?: boolean }>
     ) {
         this.props.onPictureInPictureChange?.(
-            event.nativeEvent.isInPictureInPicture
+            event.nativeEvent.isInPictureInPicture,
+            { dismissed: event.nativeEvent.dismissed ?? false }
         );
     }
 
