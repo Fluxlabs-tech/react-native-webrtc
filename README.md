@@ -1,3 +1,47 @@
+> **This is `@fluxlabs/react-native-webrtc`**, a fork of [react-native-webrtc](https://github.com/react-native-webrtc/react-native-webrtc) 124.0.8 that adds seamless picture-in-picture on Android. The sections after this one are upstream's README.
+
+## About this fork
+
+Upstream **124.0.8**, plus picture-in-picture for `RTCView` on Android. It starts from [react-native-webrtc#1710](https://github.com/react-native-webrtc/react-native-webrtc/pull/1710) by [@EdgarJMesquita](https://github.com/EdgarJMesquita), reworked so the transition is seamless:
+
+- The video replaces the screen as the transition starts (Android 15+ reports it; earlier versions when the activity pauses into PiP), so the shrink animation shows the video, not the controls drawn over it.
+- A still of the last frame covers the moved video surface until it draws again, so there is no black flash.
+- The PiP window takes the video's shape and animates from where the video is on screen.
+- Leaving the app starts PiP on Android 8 and later; `startPictureInPicture()` starts it on request.
+
+### Install
+
+Install it under the upstream name, so imports and native project names do not change:
+
+```sh
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@124.1.0
+```
+
+### Picture-in-picture
+
+```tsx
+import { RTCView, isInPictureInPicture, isPictureInPictureSupported } from 'react-native-webrtc';
+
+<RTCView
+    streamURL={streamURL}
+    objectFit="cover"
+    pictureInPictureEnabled
+    autoStartPictureInPicture
+    onPictureInPictureChange={(active, { dismissed }) => {
+        // dismissed (Android): the viewer closed the window rather than returning to the app.
+    }}
+/>
+```
+
+- `ref.current?.startPictureInPicture()` enters on request.
+- `isPictureInPictureSupported()` resolves `false` when the device lacks PiP or the user turned it off for the app.
+- `isInPictureInPicture()` answers synchronously. On Android, AppState reports `background` as soon as the activity pauses into PiP, sometimes before `onPictureInPictureChange` arrives.
+- One view manages PiP at a time: the most recently enabled one. Automatic entry waits for a video track.
+
+Android needs `android:supportsPictureInPicture="true"` on the activity, `configChanges` that include `screenSize|smallestScreenSize|screenLayout`, and compileSdk 36 (androidx.activity 1.13). While in PiP the activity is paused, and React Native does not run JS timers for a paused activity. iOS needs iOS 15 and the `audio` background mode.
+
+---
+
 [<img src="https://avatars.githubusercontent.com/u/42463376" alt="React Native WebRTC" style="height: 6em;" />](https://github.com/react-native-webrtc/react-native-webrtc)
 
 # React-Native-WebRTC
