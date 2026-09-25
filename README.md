@@ -14,7 +14,7 @@ Upstream **124.0.8**, plus picture-in-picture for `RTCView` on Android. It start
 Install it under the upstream name, so imports and native project names do not change:
 
 ```sh
-yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@124.1.0
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@124.2.0
 ```
 
 ### Picture-in-picture
