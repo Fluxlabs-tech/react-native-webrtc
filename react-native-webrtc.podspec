@@ -17,9 +17,15 @@ Pod::Spec.new do |s|
   s.platforms           = { :ios => '12.0', :osx => '10.13', :tvos => '16.0' }
 
   s.preserve_paths      = 'ios/**/*'
-  s.source_files        = 'ios/**/*.{h,m}'
+  s.source_files        = 'ios/**/*.{h,m,mm,c}'
   s.libraries           = 'c', 'sqlite3', 'stdc++'
   s.framework           = 'AudioToolbox','AVFoundation', 'CoreAudio', 'CoreGraphics', 'CoreVideo', 'GLKit', 'VideoToolbox'
-  s.dependency          'React-Core'
+  # The livestream network monitor's path monitor.
+  s.ios.framework       = 'Network'
+  s.tvos.framework      = 'Network'
   s.dependency          'JitsiWebRTC', '~> 124.0.0'
+
+  # React-Core plus the codegen and Fabric dependencies the TurboModule and the component views build
+  # against.
+  install_modules_dependencies(s)
 end

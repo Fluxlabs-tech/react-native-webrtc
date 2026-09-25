@@ -145,11 +145,36 @@
     paramsDictionary[@"encodings"] = encodings;
     paramsDictionary[@"codecs"] = codecs;
 
-    if (params.degradationPreference) {
-        paramsDictionary[@"degradationPreference"] = params.degradationPreference;
+    NSString *degradationPreference = [self serializeDegradationPreference:params.degradationPreference];
+    if (degradationPreference) {
+        paramsDictionary[@"degradationPreference"] = degradationPreference;
     }
 
     return paramsDictionary;
+}
+
+// JS names the preference as Android's RtpParameters.DegradationPreference does; iOS boxes its enum.
+static NSDictionary<NSString *, NSNumber *> *DegradationPreferences(void) {
+    return @{
+        @"DISABLED" : @(RTCDegradationPreferenceDisabled),
+        @"MAINTAIN_FRAMERATE" : @(RTCDegradationPreferenceMaintainFramerate),
+        @"MAINTAIN_RESOLUTION" : @(RTCDegradationPreferenceMaintainResolution),
+        @"BALANCED" : @(RTCDegradationPreferenceBalanced),
+    };
+}
+
++ (NSString *)serializeDegradationPreference:(NSNumber *)preference {
+    if (preference == nil) {
+        return nil;
+    }
+    return [DegradationPreferences() allKeysForObject:preference].firstObject;
+}
+
++ (NSNumber *)parseDegradationPreference:(NSString *)preference {
+    if (![preference isKindOfClass:[NSString class]]) {
+        return nil;
+    }
+    return DegradationPreferences()[preference];
 }
 
 + (NSDictionary *)trackToJSONWithPeerConnectionId:(NSNumber *)id track:(RTCMediaStreamTrack *)track {

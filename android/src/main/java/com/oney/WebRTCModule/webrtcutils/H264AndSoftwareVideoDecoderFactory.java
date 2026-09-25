@@ -3,7 +3,7 @@ package com.oney.WebRTCModule.webrtcutils;
 import androidx.annotation.Nullable;
 
 import org.webrtc.EglBase;
-import org.webrtc.HardwareVideoDecoderFactory;
+import org.webrtc.SteadyVideoDecoderFactory;
 import org.webrtc.VideoCodecInfo;
 import org.webrtc.VideoDecoder;
 import org.webrtc.VideoDecoderFactory;
@@ -24,7 +24,9 @@ public class H264AndSoftwareVideoDecoderFactory implements VideoDecoderFactory {
     private final VideoDecoderFactory softwareVideoDecoderFactory;
 
     public H264AndSoftwareVideoDecoderFactory(@Nullable EglBase.Context eglContext) {
-        this.hardwareVideoDecoderFactory = new HardwareVideoDecoderFactory(eglContext);
+        // libwebrtc's hardware decoders, with frames that arrive late after resent packets shown
+        // rather than dropped.
+        this.hardwareVideoDecoderFactory = new SteadyVideoDecoderFactory(eglContext);
         this.softwareVideoDecoderFactory = new SoftwareVideoDecoderFactoryProxy();
     }
 

@@ -1,10 +1,6 @@
-
-import { NativeModules } from 'react-native';
-
 import MediaStream from './MediaStream';
 import MediaStreamError from './MediaStreamError';
-
-const { WebRTCModule } = NativeModules;
+import WebRTCModule from './NativeWebRTCModule';
 
 export interface Constraints {
     android?: {

@@ -1,10 +1,9 @@
 #import <objc/runtime.h>
 
-#import <React/RCTBridge.h>
 #import <React/RCTBridgeModule.h>
-#import <React/RCTEventDispatcher.h>
 
 #import <WebRTC/RTCDataChannelConfiguration.h>
+#import "RCTConvert+WebRTC.h"
 #import "WebRTCModule+RTCDataChannel.h"
 #import "WebRTCModule+RTCPeerConnection.h"
 
@@ -14,8 +13,9 @@
  * Thuis methos is implemented synchronously since we need to create the DataChannel on the spot
  * and where is no good way to report an error at creation time.
  */
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(createDataChannel : (nonnull NSNumber *)peerConnectionId label : (NSString *)
-                                           label config : (RTCDataChannelConfiguration *)config) {
+- (NSDictionary *)createDataChannel:(NSInteger)pcId label:(NSString *)label config:(NSDictionary *)configJSON {
+    NSNumber *peerConnectionId = @(pcId);
+    RTCDataChannelConfiguration *config = [RCTConvert RTCDataChannelConfiguration:configJSON];
     __block id channelInfo;
 
     dispatch_sync(self.workerQueue, ^{
@@ -57,35 +57,34 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(createDataChannel : (nonnull NSNumber *)p
     return channelInfo;
 }
 
-RCT_EXPORT_METHOD(dataChannelClose : (nonnull NSNumber *)peerConnectionId reactTag : (nonnull NSString *)tag {
-    RTCPeerConnection *peerConnection = self.peerConnections[peerConnectionId];
+- (void)dataChannelClose:(NSInteger)pcId reactTag:(nonnull NSString *)tag {
+    RTCPeerConnection *peerConnection = self.peerConnections[@(pcId)];
     DataChannelWrapper *dcw = peerConnection.dataChannels[tag];
     if (dcw) {
         [dcw.channel close];
     }
-})
+}
 
-RCT_EXPORT_METHOD(dataChannelDispose : (nonnull NSNumber *)peerConnectionId reactTag : (nonnull NSString *)tag {
-    RTCPeerConnection *peerConnection = self.peerConnections[peerConnectionId];
+- (void)dataChannelDispose:(NSInteger)pcId reactTag:(nonnull NSString *)tag {
+    RTCPeerConnection *peerConnection = self.peerConnections[@(pcId)];
     DataChannelWrapper *dcw = peerConnection.dataChannels[tag];
     if (dcw) {
         dcw.delegate = nil;
         [peerConnection.dataChannels removeObjectForKey:tag];
     }
-})
+}
 
-RCT_EXPORT_METHOD(dataChannelSend : (nonnull NSNumber *)peerConnectionId reactTag : (nonnull NSString *)
-                      tag data : (NSString *)data type : (NSString *)type {
-                          RTCPeerConnection *peerConnection = self.peerConnections[peerConnectionId];
-                          DataChannelWrapper *dcw = peerConnection.dataChannels[tag];
-                          if (dcw) {
-                              BOOL isBinary = [type isEqualToString:@"binary"];
-                              NSData *bytes = isBinary ? [[NSData alloc] initWithBase64EncodedString:data options:0]
-                                                       : [data dataUsingEncoding:NSUTF8StringEncoding];
-                              RTCDataBuffer *buffer = [[RTCDataBuffer alloc] initWithData:bytes isBinary:isBinary];
-                              [dcw.channel sendData:buffer];
-                          }
-                      })
+- (void)dataChannelSend:(NSInteger)pcId reactTag:(nonnull NSString *)tag data:(NSString *)data type:(NSString *)type {
+    RTCPeerConnection *peerConnection = self.peerConnections[@(pcId)];
+    DataChannelWrapper *dcw = peerConnection.dataChannels[tag];
+    if (dcw) {
+        BOOL isBinary = [type isEqualToString:@"binary"];
+        NSData *bytes = isBinary ? [[NSData alloc] initWithBase64EncodedString:data options:0]
+                                 : [data dataUsingEncoding:NSUTF8StringEncoding];
+        RTCDataBuffer *buffer = [[RTCDataBuffer alloc] initWithData:bytes isBinary:isBinary];
+        [dcw.channel sendData:buffer];
+    }
+}
 
 - (NSString *)stringForDataChannelState:(RTCDataChannelState)state {
     switch (state) {

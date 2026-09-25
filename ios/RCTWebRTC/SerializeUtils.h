@@ -20,6 +20,8 @@
 + (RTCRtpTransceiverDirection)parseDirection:(NSString *_Nonnull)direction;
 + (RTCRtpTransceiverInit *_Nonnull)parseTransceiverOptions:(NSDictionary *_Nonnull)parameters;
 + (NSDictionary *_Nonnull)parametersToJSON:(RTCRtpParameters *_Nonnull)parameters;
++ (NSString *_Nullable)serializeDegradationPreference:(NSNumber *_Nullable)preference;
++ (NSNumber *_Nullable)parseDegradationPreference:(NSString *_Nullable)preference;
 + (NSMutableArray *_Nonnull)constructTransceiversInfoArrayWithPeerConnection:
     (RTCPeerConnection *_Nonnull)peerConnection;
 + (NSDictionary *_Nonnull)streamToJSONWithPeerConnectionId:(NSNumber *_Nonnull)id

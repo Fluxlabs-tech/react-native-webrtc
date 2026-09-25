@@ -38,7 +38,243 @@ import { RTCView, isInPictureInPicture, isPictureInPictureSupported } from 'reac
 - `isInPictureInPicture()` answers synchronously. On Android, AppState reports `background` as soon as the activity pauses into PiP, sometimes before `onPictureInPictureChange` arrives.
 - One view manages PiP at a time: the most recently enabled one. Automatic entry waits for a video track.
 
-Android needs `android:supportsPictureInPicture="true"` on the activity, `configChanges` that include `screenSize|smallestScreenSize|screenLayout`, and compileSdk 36 (androidx.activity 1.13). While in PiP the activity is paused, and React Native does not run JS timers for a paused activity. iOS needs iOS 15 and the `audio` background mode.
+Android needs `android:supportsPictureInPicture="true"` on the activity, `configChanges` that include `screenSize|smallestScreenSize|screenLayout`, and compileSdk 36 (androidx.activity 1.13). While in PiP the activity is paused, and React Native does not run JS timers for a paused activity. iOS needs iOS 15 and the `audio` background mode. The Expo config plugin's `pictureInPicture` option sets both up.
+
+### Livestreaming
+
+For a live platform: viewers watch, hosts go live. The two sides are independent. A viewer plays whatever the server has, however the host published it: WHIP from this library, or RTMP or SRT from an encoder or another app.
+
+- **Livestream audio**, built in and on from launch: remote audio plays as media through a voice leveller, optionally behind live to ride out a poor network, and a host's microphone goes out as it sounds. It replaces [react-native-webrtc-playback](#from-react-native-webrtc-playback).
+- **`WHEPClient`** plays a stream from a WHEP endpoint, and keeps playing through a weak or changing network: it waits for a host who has not started, follows the phone from network to network, says how watching is going, and can fall back to audio when the network cannot carry the video. See [Weak and changing networks](#weak-and-changing-networks).
+- **`LivestreamViewer`** is the same player for a server with signalling of its own: implement the signalling, and the rest comes with it.
+- **`WHIPClient`** publishes a camera and microphone to a WHIP endpoint, tuned for broadcast rather than calls.
+- **`LivestreamStatsSampler`** turns `getStats()` into what a quality overlay or a QoE report needs, with a judgement of the quality and of what limits it. The players sample for themselves.
+
+WHIP and WHEP are the IETF's WebRTC publishing and playback protocols: mediamtx, SRS, OvenMediaEngine, Janus, Cloudflare Stream, Dolby/Millicast, Wowza and Red5 speak both, and Ant Media takes WHIP. [`examples/LivestreamExample`](examples/LivestreamExample) is an Expo app with both sides; it also plays from Ant Media over its WebSocket signalling, as a `LivestreamViewer`.
+
+#### Setup
+
+With Expo, in `app.json`. Every option is optional:
+
+```json
+["react-native-webrtc", {
+  "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera to go live",
+  "microphonePermission": "Allow $(PRODUCT_NAME) to use your microphone to go live",
+  "capture": true,
+  "pictureInPicture": true,
+  "backgroundAudio": true,
+  "livestream": {
+    "playoutDelayMs": 1200,
+    "maxPlayoutDelayMs": 2500,
+    "leveller": true,
+    "levellerInputGainDb": 15,
+    "networkResilience": true,
+    "ios": { "manageAudioSession": true },
+    "android": { "audioFocus": true, "audioSource": "mic" }
+  }
+}]
+```
+
+| Option | Default | |
+| --- | --- | --- |
+| `capture` | `true` | `false` for a watch-only app: Android then declares no camera or microphone permission. iOS keeps both usage strings, which App Store review asks of any app linking WebRTC. |
+| `pictureInPicture` | `false` | The Android activity attributes and the iOS `audio` background mode picture-in-picture needs. |
+| `backgroundAudio` | `false` | iOS: keep playing with the app in the background. |
+| `livestream.enabled` | `true` | `false` keeps libwebrtc's call audio, with echo cancellation: for an app whose audio goes both ways, such as co-hosts talking over loudspeakers. |
+| `livestream.playoutDelayMs` | `0` | Play remote audio and video this far behind live, up to 10000 ms, which gives lost packets time to be resent. At the top level it applies to iOS only; see [Limitations](#limitations). |
+| `livestream.maxPlayoutDelayMs` | 2500 or the delay | How far video may drift behind under heavy jitter. |
+| `livestream.leveller` | `true` | A voice leveller on remote audio: input gain, a soft-knee compressor and a −1 dBFS limiter, so quiet hosts are lifted and nothing clips. |
+| `livestream.levellerInputGainDb` | `15` | How far the leveller lifts a quiet speaker, 0 to 30. |
+| `livestream.networkResilience` | `true` | While packets are being lost, wait a whole round trip for the resend rather than at most 200 ms, and a 1 MB socket buffer that holds a sharp keyframe. |
+| `livestream.ios.manageAudioSession` | `true` | Set the audio session: `.playback` / `.moviePlayback` while watching, `.playAndRecord` / `.videoRecording` while live. |
+| `livestream.android.audioFocus` | `true` | Take audio focus while playing or recording, and go quiet for a phone call. |
+| `livestream.android.audioSource` | `mic` | Where a host's microphone is recorded from: `mic`, `camcorder`, `voiceCommunication` (the platform's echo canceller and noise suppressor) or `unprocessed`. |
+
+A key in `livestream.ios` or `livestream.android` wins over the same key at the top level. The options are built into the native app, so rebuild after changing them. Without Expo, set them by hand: in Info.plist, a `WebRTCLivestream` dictionary with the same keys; in the AndroidManifest, `<meta-data>` inside `<application>` named `com.fluxlabs.webrtc.livestream.<key>`. An `audioDevice` (iOS) or `audioDeviceModule` (Android) set on `WebRTCModuleOptions` takes precedence over livestream audio.
+
+#### Watching
+
+```tsx
+import { RTCView, WHEPClient } from 'react-native-webrtc';
+
+const player = new WHEPClient({
+    url: 'https://media.example.com/live/show/whep',
+    token, // sent as Authorization: Bearer
+    audioOnlyFallback: true,
+    onStream: stream => setStreamURL(stream.toURL()),
+    onStateChange: (state, reason) => setStatus(state),
+    onStats: stats => setQuality(stats.quality),
+    onAudioOnlyChange: audioOnly => setAudioOnly(audioOnly),
+});
+player.start();
+// …
+player.stop();
+
+<RTCView streamURL={streamURL} objectFit="contain" pictureInPictureEnabled />
+```
+
+It takes the stream as the server has it, whatever published it:
+
+- **Any codec** libwebrtc decodes, H.264 from an encoder included, in hardware on both platforms.
+- **Stereo** when the source is stereo; the playout path is stereo on both platforms.
+- **Audio, video or both**, as the server sends them.
+- **No keyframes on request**: a server cannot ask an RTMP encoder for one. Lost packets are recovered by resending, and the playout delay gives the resends time to arrive.
+
+States:
+- `connecting`, then `connected` once media flows.
+- `offline` while nobody is publishing: it asks again every 2 s, jittered so viewers do not return in step, and plays when the host goes live.
+- `reconnecting` when the connection fails, stays disconnected for 8 s, or no media arrives for 6 s, as when the host drops, and while there is no network. It sets up a new session, waiting longer after each failure, from 1 s to 10 s.
+- `failed` only when the server refuses the credentials or the request.
+
+The offer goes out as soon as ICE has what the server needs, rather than after every candidate, and later candidates follow by PATCH to servers that accept them.
+
+For a server with signalling of its own, subclass `LivestreamViewer` and implement the signalling (see its doc comment, and the example's `antMedia.ts`); reconnecting, following the network, stats and quality, and the audio-only fallback come with it. For a peer connection set up entirely by hand, give it `LIVESTREAM_VIEWER_CONFIGURATION`, ask for stereo in the description you send (`setOpusParameters(sdp, { stereo: 1 })`), and sample it with `LivestreamStatsSampler`.
+
+#### Weak and changing networks
+
+What a player does:
+
+- **Follows the network.** With no network it waits rather than use up retries, and the moment one is back, or the phone moves to another, it connects again instead of waiting out a backoff; a disconnect just after a network change is acted on in 2 s rather than 8. ICE keeps gathering meanwhile, so with a server that takes new candidates the stream carries on over the new network without a new session. `livestreamNetwork` tells the app the same: online or not, Wi‑Fi or cellular, metered, and Low Data Mode or Data Saver.
+- **Recovers lost packets.** It asks for lost video and audio packets again (for audio, where the server offers it), and Opus conceals what does not come back. With `networkResilience` a resend is awaited a whole round trip, and a playout delay gives resends time to arrive.
+- **Shows the frames resends complete, on Android too.** A resend completes a frame late, and the frames behind it all at once. libwebrtc's Android hardware decoder dropped such bursts, and after each frame the decoder skipped it reported the next frames' decode time a frame too long, so libwebrtc kept shrinking the jitter buffer until frames came too late to show. At 2% loss a Snapdragon phone played 4 frames a second. H.264 now decodes through `SteadyVideoDecoderFactory`, the same decoder with frames matched by timestamp and bursts queued, which plays that stream at 29.
+- **Says how it is going.** `onStats` every 2 s, with a `quality` of `excellent`, `good`, `poor` or `bad`, judged on what the viewer gets: packets lost for good, freezes, missing frames, audio made up for, and the round trip, rather than bandwidth estimates, which swing by half with nothing wrong. `qualityLimitation` says whose it is: `network` (this phone's connection), `source` (the stream itself arrives thin with nothing lost on the way: the host's connection, or the server's), or `device`. For a banner that blames the right side, a QoE event, or a switch to another rendition or to HLS.
+- **Keeps the voice when the video cannot fit.** With `audioOnlyFallback: true`, once the stream has been more than the network carries for about 4 s (video packets lost even after resends, or the round trip swelling with queues), the player drops the video and keeps the audio. It tries the video again after 15 s, then 30 s and every minute, and at once when the phone moves to another network or the round trip drops (a queue gone: the network got better); a try ends at the first sign of congestion, and the video stays once it has played well for 8 s. A network that loses packets at random keeps the video: dropping it would not save the sound. `onAudioOnlyChange` tells the app, to show a still or a message. WHEP cannot change a session, so there each switch is a new session and about a second of silence; a player whose server can pause the video, as Ant Media can, switches with no gap.
+
+What the server and the host do counts for more:
+
+- **Adaptive bitrate** on the server, from renditions it transcodes or a host's simulcast, gives a phone on a weak connection a lower rendition rather than a broken picture. Without it every viewer gets the host's bitrate, and a phone with less bandwidth than that cannot play the video at all; audio only is then the best a player can do. On a 3 Mbps connection a 2.5 Mbps stream played at 30 fps, and a 4 Mbps one at 1 to 3.
+- **A keyframe every 1 to 2 seconds** from an RTMP encoder. Nothing can ask it for one, so a viewer that loses one waits for the next. Every second rather than every two cut the time frozen after outages by a fifth to a third.
+
+Measured with the example on a Nothing Phone (2) (Android 14) and an iPhone X (iOS 16), playing a 4 Mbps 720×1280 stream published over RTMP (H.264, and AAC the server turns into Opus), through a network emulator:
+
+| Network | Android | iPhone (1.2 s playout delay) |
+| --- | --- | --- |
+| 4G: 6 Mbps, 60 ms round trip, 0.3% loss | 29.7 fps (16.5 with libwebrtc's own decoder) | 29.9 fps |
+| 2% loss | 29.2 fps, frozen 2% of the time (4.6 fps with libwebrtc's own decoder) | 29.5 fps, never frozen |
+| 5% loss | 28.7 fps, frozen 3.4% (1.1 fps) | 29.0 fps, frozen 1.7% |
+| 20 s outage | Playing again 2 to 4 s after it ends | The same |
+| Changing every few seconds: 4G, a 2 Mbps link, 3G, EDGE, a 4 s outage, Wi‑Fi, over and over, with the audio-only fallback | Audio alone while the network cannot carry the video, and the video back in each good spell. Audio made up for: 12% of the time on the 2 Mbps link, 6% on 3G, 2% on EDGE, none on 4G and Wi‑Fi | The same |
+
+#### Going live
+
+```tsx
+import { LIVESTREAM_HOST_AUDIO_CONSTRAINTS, WHIPClient, mediaDevices } from 'react-native-webrtc';
+
+const stream = await mediaDevices.getUserMedia({
+    audio: LIVESTREAM_HOST_AUDIO_CONSTRAINTS.voice,
+    video: { facingMode: 'user', width: 1280, height: 720, frameRate: 30 },
+});
+const publisher = new WHIPClient({ url, token, stream, video: { maxBitrateKbps: 2500 } });
+publisher.start();
+```
+
+- **Microphone**: `voice` has noise suppression and gain control; `studio` has no processing, for music or a good microphone. Echo cancellation is off in both: it is for calls, and colours a voice that has nothing to cancel. The standard `echoCancellation`, `noiseSuppression` and `autoGainControl` constraints now work on both platforms; before, iOS ignored audio constraints altogether.
+- **Video**: H.264, offered alone, because servers pick codecs by their own preference rather than the offer's order. Phones encode it in hardware, so an hour-long stream does not heat the phone, and RTMP and HLS outputs carry it without transcoding. `codec: null` leaves the choice to the server.
+- **Bitrates**: starts at 1000 kbps rather than libwebrtc's 300, so the first seconds are sharp. Opus runs at 64 kbps without discontinuous transmission.
+- **Degradation**: when bandwidth or the CPU runs short, frame rate and resolution give a little each (`degradationPreference`).
+- **Orientation**: frames are rotated before encoding, so a portrait stream plays upright in any player, HLS and RTMP outputs included.
+- **Simulcast**: `simulcast: true` sends full, half and quarter resolution, for servers that forward each viewer the one it can take.
+
+For a server's own signalling, apply the same tuning in four steps: `addLivestreamTracks(pc, stream, options)`, `tuneLivestreamOffer(sdp)`, `tuneLivestreamAnswer(sdp, options)`, and `applyLivestreamSenderParameters(videoSender, options)` once connected.
+
+#### Livestream audio at run time
+
+```ts
+import { livestreamAudio } from 'react-native-webrtc';
+
+livestreamAudio.isInstalled;       // false when turned off, or the app set its own audio device
+livestreamAudio.isPlaying;         // remote audio is playing
+livestreamAudio.isRecording;       // the microphone is live
+livestreamAudio.config;            // what it runs with
+livestreamAudio.levellerEnabled = false;  // switch while playing, to compare by ear
+livestreamAudio.takeLevels();      // iOS: the leveller's peaks since the last call
+```
+
+What it changes, against libwebrtc's call audio:
+
+| | iOS | Android |
+| --- | --- | --- |
+| Playback | RemoteIO under `.playback`, instead of VoiceProcessingIO, the phone-call unit: full-band sound at media volume, and no microphone indicator while watching | `USAGE_MEDIA`, in stereo, instead of `USAGE_VOICE_COMMUNICATION`, band-limited on the call volume |
+| Leveller | In software on the playout path, with metering | The platform's DynamicsProcessing effect on WebRTC's track, LoudnessEnhancer below Android 9 |
+| Playout delay | Audio held back in step with the video from the first frame | Opt-in; see [Limitations](#limitations) |
+| Playout buffer | | Twice the platform minimum, so a late audio thread does not crackle |
+| Other apps | The session is not mixable: music in another app pauses, as for a video | Takes audio focus; mutes for a call |
+| Host microphone | Captured without voice processing, mono at 48 kHz | `MIC` source, without the platform's echo canceller and noise suppressor |
+
+#### Hosts on RTMP
+
+A host publishing RTMP, from OBS or a phone library, plays in a `WHEPClient` like any other, given three things on the way in:
+
+- **Opus audio.** RTMP carries AAC and WebRTC plays Opus, so the server must transcode. Ant Media, Wowza and Red5 do; mediamtx does not, and its viewers get video only. Enhanced RTMP, SRT and RTSP can carry Opus directly.
+- **No B-frames.** WebRTC decodes frames in the order they arrive; B-frames stutter.
+- **A keyframe at least every 2 seconds.** Nothing can ask the encoder for one, so a viewer that joins or loses a keyframe waits for the next.
+
+#### Limitations
+
+- **Android holds back only the video.** libwebrtc has no hook for delaying audio on Android, so with a playout delay the voice runs ahead of the picture for the first seconds of each session, until lip sync catches up at 80 ms a second. So at the top level, `playoutDelayMs` applies to iOS only. Set `livestream.android.playoutDelayMs` to accept the trade: at 500 ms, lip sync takes about 6 s, and on a network losing 5% of packets the picture freezes half as often (1.7% of the time rather than 3.4%).
+- **H.264 on Android hosts needs a Qualcomm or Exynos encoder.** libwebrtc 124 encodes H.264 in hardware only on those. On other chips, MediaTek among them, the host sends VP8 in software instead. Viewers decode H.264 in hardware on every chip.
+- **Two-way audio needs echo cancellation.** Livestream audio has none: with a host listening to a co-host on a loudspeaker, turn it off (`enabled: false`), or on Android use `audioSource: "voiceCommunication"`.
+- **Android has no leveller metering.** DynamicsProcessing exposes none, so `takeLevels()` returns `null` there.
+- **iOS only on Apple platforms.** tvOS and macOS keep libwebrtc's own audio device.
+
+#### From react-native-webrtc-playback
+
+| react-native-webrtc-playback | here |
+| --- | --- |
+| `["react-native-webrtc-playback", { … }]` | `["react-native-webrtc", { "livestream": { … } }]`, same keys |
+| `getWebRtcPlayback()` | `livestreamAudio` |
+| `.isInstalled`, `.isPlaying`, `.config`, `.levellerEnabled` | the same |
+| `.takeLevels()` returning `undefined` | `.takeLevels()` returning `null` |
+| `RECOMMENDED_RTC_CONFIGURATION` | `LIVESTREAM_VIEWER_CONFIGURATION`, which `WHEPClient` applies itself |
+
+Remove the package and its plugin: with both installed, the one that sets the audio device first wins. The Info.plist key is now `WebRTCLivestream`, and the meta-data prefix `com.fluxlabs.webrtc.livestream.`.
+
+### New Architecture
+
+This fork runs on the New Architecture only, React Native 0.76 or later: `WebRTCModule` is a TurboModule with typed events, and `RTCView` and `ScreenCapturePickerView` are Fabric components. Codegen builds them from the specs in `src/` (`NativeWebRTCModule.ts`, `RTCVideoViewNativeComponent.ts`, `ScreenCapturePickerViewNativeComponent.ts`), as `codegenConfig` in `package.json` describes. An app on the old architecture gets an error at startup; 124.1.0 is the last version for it.
+
+- The JS API is the same, except `ScreenCapturePickerView`: it is a component with a `show()` method. Replace `NativeModules.ScreenCapturePickerViewManager.show(findNodeHandle(ref.current))` with `ref.current?.show()`.
+- A new native method goes in `src/NativeWebRTCModule.ts`, then on both platforms with the signature codegen generates. On iOS, debug builds log any spec method the module lacks or declares with other types.
+- A new event goes in the spec too, then in `WebRTCModule.h` and `WebRTCModuleEvents()` on iOS and in `WebRTCModule.sendEvent()` on Android.
+
+### Performance
+
+A benchmark app calling this library, Release builds, median of 3 runs.
+
+- **Old arch**: the library over the bridge, in a React Native 0.81 app with the New Architecture off.
+- **New arch (interop)**: the library before this fork's conversion, in a React Native 0.87 app, running through React Native's interop layer for legacy modules and views.
+- **New arch (bridgeless)**: this fork, TurboModule and Fabric components, in the same React Native 0.87 app.
+
+Both New Architecture columns run bridgeless, as React Native 0.87 always does; they differ in whether the library goes through the interop layer.
+
+Android, arm64 emulator (API 35):
+
+| | Old arch | New arch (interop) | New arch (bridgeless) |
+|---|---|---|---|
+| Native sync call | 0.76 µs | 0.16 µs | 0.14 µs |
+| Async call | 290 µs | 195 µs | 194 µs |
+| Call setup | 23.3 ms | 19.2 ms | 18.6 ms |
+| `getStats()` | 0.57 ms | 0.53 ms | 0.59 ms |
+| 1,000 binary messages | 702 ms | 407 ms | 427 ms |
+| 1,000 text messages | 138 ms | 151 ms | 161 ms |
+
+iOS, iPhone 17 simulator (iOS 26.5):
+
+| | New arch (interop) | New arch (bridgeless) |
+|---|---|---|
+| Native sync call | 2.35 µs | 1.94 µs |
+| Async call | 14.8 µs | 14.0 µs |
+| Call setup | 3.0 ms | 3.0 ms |
+| `getStats()` | 0.33 ms | 0.30 ms |
+| 1,000 binary messages | 473 ms | 474 ms |
+| 1,000 text messages | 60 ms | 54 ms |
+
+- **Native sync call**: one synchronous method call. **Async call**: one promise round trip.
+- **Call setup**: offer, answer and ICE between two peer connections in the app, until a data channel opens.
+- **`getStats()`**: on a connected call; with audio and video on Android, data channel only on iOS, whose simulator has no camera.
+- **Messages**: 4 KB each over a data channel, at most 64 in flight. Binary messages cost more because they cross to native as base64.
+
+Moving the app from the old architecture to the new one is the gain: synchronous calls about 5× faster, async calls and call setup 20–35% faster, binary messages 40% faster. The conversion keeps that speed without the interop layer. These are emulator and simulator numbers, not devices; the old architecture was measured on Android only.
 
 ---
 

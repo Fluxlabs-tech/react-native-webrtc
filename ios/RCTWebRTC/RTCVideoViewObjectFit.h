@@ -1,5 +1,4 @@
 #import <Foundation/Foundation.h>
-#import <React/RCTViewManager.h>
 
 /**
  * In the fashion of
@@ -23,7 +22,3 @@ typedef NS_ENUM(NSInteger, RTCVideoViewObjectFit) {
      */
     RTCVideoViewObjectFitCover
 };
-
-@interface RTCVideoViewManager : RCTViewManager
-
-@end

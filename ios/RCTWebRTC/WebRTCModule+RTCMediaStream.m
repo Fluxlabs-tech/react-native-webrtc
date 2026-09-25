@@ -36,8 +36,30 @@
  * {@code RTCAudioTrack} instance is to satisfy.
  */
 - (RTCAudioTrack *)createAudioTrack:(NSDictionary *)constraints {
+    // The audio constraints as libwebrtc reads them: string values under its own names
+    // (googEchoCancellation and the like), which src/RTCUtil.ts maps the standard ones to. They
+    // set the audio processing the track is sent with.
+    NSMutableDictionary<NSString *, NSString *> *mandatory = [NSMutableDictionary dictionary];
+    id audio = constraints[@"audio"];
+    if ([audio isKindOfClass:[NSDictionary class]]) {
+        [audio enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
+            if (![key isKindOfClass:[NSString class]]) {
+                return;
+            }
+            if ([value isKindOfClass:[NSString class]]) {
+                mandatory[key] = value;
+            } else if ([value isKindOfClass:[NSNumber class]] &&
+                       CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID()) {
+                mandatory[key] = [value boolValue] ? @"true" : @"false";
+            }
+        }];
+    }
+    RTCMediaConstraints *mediaConstraints = [[RTCMediaConstraints alloc] initWithMandatoryConstraints:mandatory
+                                                                                  optionalConstraints:nil];
+    RTCAudioSource *audioSource = [self.peerConnectionFactory audioSourceWithConstraints:mediaConstraints];
+
     NSString *trackId = [[NSUUID UUID] UUIDString];
-    RTCAudioTrack *audioTrack = [self.peerConnectionFactory audioTrackWithTrackId:trackId];
+    RTCAudioTrack *audioTrack = [self.peerConnectionFactory audioTrackWithSource:audioSource trackId:trackId];
     return audioTrack;
 }
 /**
@@ -168,7 +190,9 @@
     return videoTrack;
 }
 
-RCT_EXPORT_METHOD(getDisplayMedia : (NSDictionary *)constraints resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)getDisplayMedia:(NSDictionary *)constraints
+                resolve:(RCTPromiseResolveBlock)resolve
+                 reject:(RCTPromiseRejectBlock)reject {
 #if TARGET_OS_TV
     reject(@"unsupported_platform", @"tvOS is not supported", nil);
     return;
@@ -208,8 +232,9 @@ RCT_EXPORT_METHOD(getDisplayMedia : (NSDictionary *)constraints resolver : (RCTP
  * if audio permission was not granted, there will be no "audio" key in
  * the constraints dictionary.
  */
-RCT_EXPORT_METHOD(getUserMedia : (NSDictionary *)constraints successCallback : (RCTResponseSenderBlock)
-                      successCallback errorCallback : (RCTResponseSenderBlock)errorCallback) {
+- (void)getUserMedia:(NSDictionary *)constraints
+     successCallback:(RCTResponseSenderBlock)successCallback
+       errorCallback:(RCTResponseSenderBlock)errorCallback {
 #if TARGET_OS_TV
     errorCallback(@[ @"PlatformNotSupported", @"getUserMedia is not supported on tvOS." ]);
     return;
@@ -281,7 +306,7 @@ RCT_EXPORT_METHOD(getUserMedia : (NSDictionary *)constraints successCallback : (
 
 #pragma mark - Other stream related APIs
 
-RCT_EXPORT_METHOD(enumerateDevices : (RCTResponseSenderBlock)callback) {
+- (void)enumerateDevices:(RCTResponseSenderBlock)callback {
 #if TARGET_OS_TV
     callback(@[]);
 #else
@@ -349,13 +374,15 @@ RCT_EXPORT_METHOD(enumerateDevices : (RCTResponseSenderBlock)callback) {
 #endif
 }
 
-RCT_EXPORT_METHOD(mediaStreamCreate : (nonnull NSString *)streamID) {
+- (void)mediaStreamCreate:(nonnull NSString *)streamID {
     RTCMediaStream *mediaStream = [self.peerConnectionFactory mediaStreamWithStreamId:streamID];
     self.localStreams[streamID] = mediaStream;
 }
 
-RCT_EXPORT_METHOD(mediaStreamAddTrack : (nonnull NSString *)streamID : (nonnull NSNumber *)pcId : (nonnull NSString *)
-                      trackID) {
+- (void)mediaStreamAddTrack:(nonnull NSString *)streamID
+                       pcId:(NSInteger)peerConnectionId
+                    trackId:(nonnull NSString *)trackID {
+    NSNumber *pcId = @(peerConnectionId);
     RTCMediaStream *mediaStream = self.localStreams[streamID];
     if (mediaStream == nil) {
         return;
@@ -373,8 +400,10 @@ RCT_EXPORT_METHOD(mediaStreamAddTrack : (nonnull NSString *)streamID : (nonnull 
     }
 }
 
-RCT_EXPORT_METHOD(mediaStreamRemoveTrack : (nonnull NSString *)streamID : (nonnull NSNumber *)
-                      pcId : (nonnull NSString *)trackID) {
+- (void)mediaStreamRemoveTrack:(nonnull NSString *)streamID
+                          pcId:(NSInteger)peerConnectionId
+                       trackId:(nonnull NSString *)trackID {
+    NSNumber *pcId = @(peerConnectionId);
     RTCMediaStream *mediaStream = self.localStreams[streamID];
     if (mediaStream == nil) {
         return;
@@ -392,14 +421,14 @@ RCT_EXPORT_METHOD(mediaStreamRemoveTrack : (nonnull NSString *)streamID : (nonnu
     }
 }
 
-RCT_EXPORT_METHOD(mediaStreamRelease : (nonnull NSString *)streamID) {
+- (void)mediaStreamRelease:(nonnull NSString *)streamID {
     RTCMediaStream *stream = self.localStreams[streamID];
     if (stream) {
         [self.localStreams removeObjectForKey:streamID];
     }
 }
 
-RCT_EXPORT_METHOD(mediaStreamTrackRelease : (nonnull NSString *)trackID) {
+- (void)mediaStreamTrackRelease:(nonnull NSString *)trackID {
 #if TARGET_OS_TV
     return;
 #else
@@ -413,7 +442,10 @@ RCT_EXPORT_METHOD(mediaStreamTrackRelease : (nonnull NSString *)trackID) {
 #endif
 }
 
-RCT_EXPORT_METHOD(mediaStreamTrackSetEnabled : (nonnull NSNumber *)pcId : (nonnull NSString *)trackID : (BOOL)enabled) {
+- (void)mediaStreamTrackSetEnabled:(NSInteger)peerConnectionId
+                           trackId:(nonnull NSString *)trackID
+                           enabled:(BOOL)enabled {
+    NSNumber *pcId = @(peerConnectionId);
     RTCMediaStreamTrack *track = [self trackForId:trackID pcId:pcId];
     if (track == nil) {
         return;
@@ -431,8 +463,10 @@ RCT_EXPORT_METHOD(mediaStreamTrackSetEnabled : (nonnull NSNumber *)pcId : (nonnu
 #endif
 }
 
-RCT_EXPORT_METHOD(mediaStreamTrackApplyConstraints : (nonnull NSString *)trackID : (NSDictionary *)
-                      constraints : (RCTPromiseResolveBlock)resolve : (RCTPromiseRejectBlock)reject) {
+- (void)mediaStreamTrackApplyConstraints:(nonnull NSString *)trackID
+                             constraints:(NSDictionary *)constraints
+                                 resolve:(RCTPromiseResolveBlock)resolve
+                                  reject:(RCTPromiseRejectBlock)reject {
 #if TARGET_OS_TV
     reject(@"unsupported_platform", @"tvOS is not supported", nil);
     return;
@@ -462,7 +496,10 @@ RCT_EXPORT_METHOD(mediaStreamTrackApplyConstraints : (nonnull NSString *)trackID
 #endif
 }
 
-RCT_EXPORT_METHOD(mediaStreamTrackSetVolume : (nonnull NSNumber *)pcId : (nonnull NSString *)trackID : (double)volume) {
+- (void)mediaStreamTrackSetVolume:(NSInteger)peerConnectionId
+                          trackId:(nonnull NSString *)trackID
+                           volume:(double)volume {
+    NSNumber *pcId = @(peerConnectionId);
     RTCMediaStreamTrack *track = [self trackForId:trackID pcId:pcId];
     if (track && [track.kind isEqualToString:@"audio"]) {
         RTCAudioTrack *audioTrack = (RTCAudioTrack *)track;
@@ -470,8 +507,7 @@ RCT_EXPORT_METHOD(mediaStreamTrackSetVolume : (nonnull NSNumber *)pcId : (nonnul
     }
 }
 
-RCT_EXPORT_METHOD(mediaStreamTrackSetVideoEffects : (nonnull NSString *)trackID names : (nonnull NSArray<NSString *> *)
-                      names) {
+- (void)mediaStreamTrackSetVideoEffects:(nonnull NSString *)trackID names:(nonnull NSArray<NSString *> *)names {
     RTCMediaStreamTrack *track = self.localTracks[trackID];
     if (track == nil) {
         return;

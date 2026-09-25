@@ -1,12 +1,7 @@
 import React from 'react';
-import {
-    findNodeHandle,
-    NativeSyntheticEvent,
-    Platform,
-    requireNativeComponent,
-    UIManager,
-    ViewProps,
-} from 'react-native';
+import { NativeSyntheticEvent, ViewProps } from 'react-native';
+
+import NativeRTCVideoView, { Commands } from './RTCVideoViewNativeComponent';
 
 /**
  * Native prop validation was removed from RN in:
@@ -142,11 +137,6 @@ interface RTCVideoViewProps extends RTCVideoViewBaseProps {
   onDimensionsChange?: (dimensions:{ width: number; height: number }) => void;
 }
 
-const NativeRTCVideoView =
-  requireNativeComponent<NativeVideoViewProps>('RTCVideoView');
-
-type CommandName = 'startPictureInPicture' | 'stopPictureInPicture';
-
 type RefType = React.ComponentRef<typeof NativeRTCVideoView>;
 
 class RTCView extends React.PureComponent<RTCVideoViewProps> {
@@ -164,13 +154,7 @@ class RTCView extends React.PureComponent<RTCVideoViewProps> {
    */
     public startPictureInPicture() {
         try {
-            const node = this.handle;
-
-            UIManager.dispatchViewManagerCommand(
-                node,
-                this.getCommand('startPictureInPicture'),
-                []
-            );
+            Commands.startPictureInPicture(this.view);
         } catch (error) {
             console.warn(error);
         }
@@ -181,33 +165,20 @@ class RTCView extends React.PureComponent<RTCVideoViewProps> {
    */
     public stopPictureInPicture() {
         try {
-            const node = this.handle;
-
-            UIManager.dispatchViewManagerCommand(
-                node,
-                this.getCommand('stopPictureInPicture'),
-                []
-            );
+            Commands.stopPictureInPicture(this.view);
         } catch (error) {
             console.warn(error);
         }
     }
 
-    private getCommand(commandName: CommandName): string | number {
-        const config = UIManager.getViewManagerConfig('RTCVideoView');
-        const command = config.Commands[commandName];
+    private get view(): RefType {
+        const view = this.ref.current;
 
-        return Platform.OS === 'android' ? command.toString() : command;
-    }
-
-    private get handle(): number {
-        const nodeHandle = findNodeHandle(this.ref.current);
-
-        if (nodeHandle === null || nodeHandle === -1) {
+        if (!view) {
             throw new Error('RTCView not found in React tree.');
         }
 
-        return nodeHandle;
+        return view;
     }
 
     private onPictureInPictureChange(

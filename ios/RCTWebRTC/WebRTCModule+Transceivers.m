@@ -1,6 +1,5 @@
 #import <objc/runtime.h>
 
-#import <React/RCTBridge.h>
 #import <React/RCTBridgeModule.h>
 
 #import <WebRTC/RTCRtpCodecCapability.h>
@@ -12,7 +11,7 @@
 
 @implementation WebRTCModule (Transceivers)
 
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(senderGetCapabilities : (NSString *)kind) {
+- (NSDictionary *)senderGetCapabilities:(NSString *)kind {
     __block id params;
 
     dispatch_sync(self.workerQueue, ^{
@@ -23,7 +22,7 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(senderGetCapabilities : (NSString *)kind)
     return params;
 }
 
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(receiverGetCapabilities : (NSString *)kind) {
+- (NSDictionary *)receiverGetCapabilities:(NSString *)kind {
     __block id params;
 
     dispatch_sync(self.workerQueue, ^{
@@ -34,8 +33,12 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(receiverGetCapabilities : (NSString *)kin
     return params;
 }
 
-RCT_EXPORT_METHOD(senderReplaceTrack : (nonnull NSNumber *)objectID senderId : (NSString *)senderId trackId : (
-    NSString *)trackId resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)senderReplaceTrack:(NSInteger)pcId
+                  senderId:(NSString *)senderId
+                   trackId:(NSString *)trackId
+                   resolve:(RCTPromiseResolveBlock)resolve
+                    reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
 
     if (peerConnection == nil) {
@@ -62,8 +65,12 @@ RCT_EXPORT_METHOD(senderReplaceTrack : (nonnull NSNumber *)objectID senderId : (
     resolve(@true);
 }
 
-RCT_EXPORT_METHOD(senderSetParameters : (nonnull NSNumber *)objectID senderId : (NSString *)senderId options : (
-    NSDictionary *)options resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)senderSetParameters:(NSInteger)pcId
+                   senderId:(NSString *)senderId
+                    options:(NSDictionary *)options
+                    resolve:(RCTPromiseResolveBlock)resolve
+                     reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
 
     if (peerConnection == nil) {
@@ -93,8 +100,12 @@ RCT_EXPORT_METHOD(senderSetParameters : (nonnull NSNumber *)objectID senderId : 
     resolve([SerializeUtils parametersToJSON:sender.parameters]);
 }
 
-RCT_EXPORT_METHOD(transceiverSetDirection : (nonnull NSNumber *)objectID senderId : (NSString *)senderId direction : (
-    NSString *)direction resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)transceiverSetDirection:(NSInteger)pcId
+                       senderId:(NSString *)senderId
+                      direction:(NSString *)direction
+                        resolve:(RCTPromiseResolveBlock)resolve
+                         reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
 
     if (peerConnection == nil) {
@@ -127,8 +138,11 @@ RCT_EXPORT_METHOD(transceiverSetDirection : (nonnull NSNumber *)objectID senderI
     }
 }
 
-RCT_EXPORT_METHOD(transceiverStop : (nonnull NSNumber *)objectID senderId : (NSString *)
-                      senderId resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)transceiverStop:(NSInteger)pcId
+               senderId:(NSString *)senderId
+                resolve:(RCTPromiseResolveBlock)resolve
+                 reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
 
     if (peerConnection == nil) {
@@ -156,8 +170,10 @@ RCT_EXPORT_METHOD(transceiverStop : (nonnull NSNumber *)objectID senderId : (NSS
     resolve(@true);
 }
 
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(transceiverSetCodecPreferences : (nonnull NSNumber *)objectID senderId : (
-    NSString *)senderId codecPreferences : (NSArray *)codecPreferences) {
+- (NSNumber *)transceiverSetCodecPreferences:(NSInteger)pcId
+                                    senderId:(NSString *)senderId
+                            codecPreferences:(NSArray *)codecPreferences {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
 
     if (peerConnection == nil) {
@@ -242,8 +258,9 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(transceiverSetCodecPreferences : (nonnull
         encoding.scaleResolutionDownBy = encodingUpdate[@"scaleResolutionDownBy"];
     }
 
-    if ([options objectForKey:@"degradationPreference"]) {
-        params.degradationPreference = [options objectForKey:@"degradationPreference"];
+    NSNumber *degradationPreference = [SerializeUtils parseDegradationPreference:options[@"degradationPreference"]];
+    if (degradationPreference) {
+        params.degradationPreference = degradationPreference;
     }
 
     return params;

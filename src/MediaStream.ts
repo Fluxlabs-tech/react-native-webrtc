@@ -1,11 +1,8 @@
-import { NativeModules } from 'react-native';
-
 import MediaStreamTrack, { MediaStreamTrackInfo } from './MediaStreamTrack';
 import MediaStreamTrackEvent from './MediaStreamTrackEvent';
+import WebRTCModule from './NativeWebRTCModule';
 import { uniqueID } from './RTCUtil';
 import { EventTarget, getEventAttributeValue, setEventAttributeValue } from './vendor/event-target-shim';
-
-const { WebRTCModule } = NativeModules;
 
 type MediaStreamEventMap = {
     addtrack: MediaStreamTrackEvent<'addtrack'>

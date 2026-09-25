@@ -2,7 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <WebRTC/RTCVideoTrack.h>
 
-#import "RTCVideoViewManager.h"
+#import "RTCVideoViewObjectFit.h"
 
 @protocol PIPControllerDelegate<NSObject>
 - (void)didChangePictureInPicture:(BOOL)isInPictureInPicture;

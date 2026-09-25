@@ -13,14 +13,11 @@ import android.view.ViewParent;
 import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
 
-import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReadableMap;
-import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.uimanager.UIManagerHelper;
 import com.facebook.react.uimanager.events.EventDispatcher;
-import com.facebook.react.uimanager.events.RCTEventEmitter;
 
 import org.webrtc.EglBase;
 import org.webrtc.Logging;
@@ -157,11 +154,6 @@ public class WebRTCView extends ViewGroup {
      * prop turns it on.
      */
     private final PictureInPictureController pictureInPicture;
-
-    /**
-     * The callback to be called when video dimensions change.
-     */
-    private boolean onDimensionsChangeEnabled = false;
 
     public WebRTCView(Context context) {
         super(context);
@@ -311,23 +303,8 @@ public class WebRTCView extends ViewGroup {
             post(requestSurfaceViewRendererLayoutRunnable);
             post(pictureInPicture::onVideoChanged);
 
-            // Call the onDimensionsChange callback if it's enabled
-            if (onDimensionsChangeEnabled) {
-                post(() -> {
-                    try {
-                        ReactContext reactContext = (ReactContext) getContext();
-                        WritableMap params = Arguments.createMap();
-                        params.putInt("width", videoWidth);
-                        params.putInt("height", videoHeight);
-
-                        // Send the event through React Native's event system
-                        reactContext.getJSModule(RCTEventEmitter.class)
-                                .receiveEvent(getId(), "onDimensionsChange", params);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error calling onDimensionsChange callback", e);
-                    }
-                });
-            }
+            // Always sent: the new architecture passes no event props to tell whether JS listens.
+            post(() -> dispatchDimensionsChange(videoWidth, videoHeight));
         }
     }
 
@@ -706,6 +683,15 @@ public class WebRTCView extends ViewGroup {
         pictureInPicture.enterPictureInPicture();
     }
 
+    private void dispatchDimensionsChange(int width, int height) {
+        ReactContext reactContext = (ReactContext) getContext();
+        EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, getId());
+        if (dispatcher == null) {
+            return;
+        }
+        dispatcher.dispatchEvent(new DimensionsChangeEvent(UIManagerHelper.getSurfaceId(this), getId(), width, height));
+    }
+
     private void dispatchPictureInPictureChange(boolean isInPictureInPicture, boolean dismissed) {
         ReactContext reactContext = (ReactContext) getContext();
         EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, getId());
@@ -714,14 +700,5 @@ public class WebRTCView extends ViewGroup {
         }
         dispatcher.dispatchEvent(new PictureInPictureChangeEvent(
                 UIManagerHelper.getSurfaceId(this), getId(), isInPictureInPicture, dismissed));
-    }
-
-    /**
-     * Sets whether the onDimensionsChange callback should be called.
-     *
-     * @param enabled Whether the callback should be enabled.
-     */
-    public void setOnDimensionsChange(boolean enabled) {
-        this.onDimensionsChangeEnabled = enabled;
     }
 }

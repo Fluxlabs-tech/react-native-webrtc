@@ -1,8 +1,6 @@
 #import <objc/runtime.h>
 
 #import <CommonCrypto/CommonDigest.h>
-#import <React/RCTBridge.h>
-#import <React/RCTEventDispatcher.h>
 #import <React/RCTLog.h>
 #import <React/RCTUtils.h>
 
@@ -17,6 +15,7 @@
 #import <WebRTC/RTCSessionDescription.h>
 #import <WebRTC/RTCStatisticsReport.h>
 
+#import "RCTConvert+WebRTC.h"
 #import "SerializeUtils.h"
 #import "WebRTCModule+RTCDataChannel.h"
 #import "WebRTCModule+RTCPeerConnection.h"
@@ -90,8 +89,9 @@ int _transceiverNextId = 0;
  * This method is synchronous and blocking. This is done so we can implement createDataChannel
  * in the same way (synchronous) since the peer connection needs to exist before.
  */
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionInit : (RTCConfiguration *)
-                                           configuration objectID : (nonnull NSNumber *)objectID) {
+- (NSNumber *)peerConnectionInit:(NSDictionary *)configurationJSON objectID:(NSInteger)pcId {
+    RTCConfiguration *configuration = [RCTConvert RTCConfiguration:configurationJSON];
+    NSNumber *objectID = @(pcId);
     __block BOOL ret = YES;
 
     dispatch_sync(self.workerQueue, ^{
@@ -118,8 +118,9 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionInit : (RTCConfiguration *)
     return @(ret);
 }
 
-RCT_EXPORT_METHOD(peerConnectionSetConfiguration : (RTCConfiguration *)configuration objectID : (nonnull NSNumber *)
-                      objectID) {
+- (void)peerConnectionSetConfiguration:(NSDictionary *)configurationJSON objectID:(NSInteger)pcId {
+    RTCConfiguration *configuration = [RCTConvert RTCConfiguration:configurationJSON];
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         return;
@@ -127,8 +128,11 @@ RCT_EXPORT_METHOD(peerConnectionSetConfiguration : (RTCConfiguration *)configura
     [peerConnection setConfiguration:configuration];
 }
 
-RCT_EXPORT_METHOD(peerConnectionCreateOffer : (nonnull NSNumber *)objectID options : (NSDictionary *)
-                      options resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)peerConnectionCreateOffer:(NSInteger)pcId
+                          options:(NSDictionary *)options
+                          resolve:(RCTPromiseResolveBlock)resolve
+                           reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         reject(@"E_INVALID", @"PeerConnection not found", nil);
@@ -172,8 +176,11 @@ RCT_EXPORT_METHOD(peerConnectionCreateOffer : (nonnull NSNumber *)objectID optio
     [peerConnection offerForConstraints:constraints completionHandler:handler];
 }
 
-RCT_EXPORT_METHOD(peerConnectionCreateAnswer : (nonnull NSNumber *)objectID options : (NSDictionary *)
-                      options resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)peerConnectionCreateAnswer:(NSInteger)pcId
+                           options:(NSDictionary *)options
+                           resolve:(RCTPromiseResolveBlock)resolve
+                            reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         reject(@"E_INVALID", @"PeerConnection not found", nil);
@@ -201,8 +208,12 @@ RCT_EXPORT_METHOD(peerConnectionCreateAnswer : (nonnull NSNumber *)objectID opti
     [peerConnection answerForConstraints:constraints completionHandler:handler];
 }
 
-RCT_EXPORT_METHOD(peerConnectionSetLocalDescription : (nonnull NSNumber *)objectID desc : (RTCSessionDescription *)
-                      desc resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)peerConnectionSetLocalDescription:(NSInteger)pcId
+                                     desc:(NSDictionary *)descJSON
+                                  resolve:(RCTPromiseResolveBlock)resolve
+                                   reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
+    RTCSessionDescription *desc = [RCTConvert RTCSessionDescription:descJSON];
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         reject(@"E_INVALID", @"PeerConnection not found", nil);
@@ -237,8 +248,12 @@ RCT_EXPORT_METHOD(peerConnectionSetLocalDescription : (nonnull NSNumber *)object
     }
 }
 
-RCT_EXPORT_METHOD(peerConnectionSetRemoteDescription : (nonnull NSNumber *)objectID desc : (RTCSessionDescription *)
-                      desc resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)peerConnectionSetRemoteDescription:(NSInteger)pcId
+                                      desc:(NSDictionary *)descJSON
+                                   resolve:(RCTPromiseResolveBlock)resolve
+                                    reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
+    RTCSessionDescription *desc = [RCTConvert RTCSessionDescription:descJSON];
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         reject(@"E_INVALID", @"PeerConnection not found", nil);
@@ -286,8 +301,12 @@ RCT_EXPORT_METHOD(peerConnectionSetRemoteDescription : (nonnull NSNumber *)objec
     [peerConnection setRemoteDescription:desc completionHandler:handler];
 }
 
-RCT_EXPORT_METHOD(peerConnectionAddICECandidate : (nonnull NSNumber *)objectID candidate : (RTCIceCandidate *)
-                      candidate resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)peerConnectionAddICECandidate:(NSInteger)pcId
+                            candidate:(NSDictionary *)candidateJSON
+                              resolve:(RCTPromiseResolveBlock)resolve
+                               reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
+    RTCIceCandidate *candidate = [RCTConvert RTCIceCandidate:candidateJSON];
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         reject(@"E_INVALID", @"PeerConnection not found", nil);
@@ -309,7 +328,8 @@ RCT_EXPORT_METHOD(peerConnectionAddICECandidate : (nonnull NSNumber *)objectID c
     [peerConnection addIceCandidate:candidate completionHandler:handler];
 }
 
-RCT_EXPORT_METHOD(peerConnectionClose : (nonnull NSNumber *)objectID) {
+- (void)peerConnectionClose:(NSInteger)pcId {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         return;
@@ -318,7 +338,8 @@ RCT_EXPORT_METHOD(peerConnectionClose : (nonnull NSNumber *)objectID) {
     [peerConnection close];
 }
 
-RCT_EXPORT_METHOD(peerConnectionDispose : (nonnull NSNumber *)objectID) {
+- (void)peerConnectionDispose:(NSInteger)pcId {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         return;
@@ -348,8 +369,10 @@ RCT_EXPORT_METHOD(peerConnectionDispose : (nonnull NSNumber *)objectID) {
     [self.peerConnections removeObjectForKey:objectID];
 }
 
-RCT_EXPORT_METHOD(peerConnectionGetStats : (nonnull NSNumber *)objectID resolver : (RCTPromiseResolveBlock)
-                      resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)peerConnectionGetStats:(NSInteger)pcId
+                       resolve:(RCTPromiseResolveBlock)resolve
+                        reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         RCTLogWarn(@"PeerConnection %@ not found in peerConnectionGetStats()", objectID);
@@ -362,8 +385,11 @@ RCT_EXPORT_METHOD(peerConnectionGetStats : (nonnull NSNumber *)objectID resolver
     }];
 }
 
-RCT_EXPORT_METHOD(receiverGetStats : (nonnull NSNumber *)pcId receiverId : (nonnull NSString *)
-                      receiverId resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)receiverGetStats:(NSInteger)peerConnectionId
+              receiverId:(nonnull NSString *)receiverId
+                 resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *pcId = @(peerConnectionId);
     RTCPeerConnection *peerConnection = self.peerConnections[pcId];
     if (!peerConnection) {
         RCTLogWarn(@"PeerConnection %@ not found in receiverGetStats()", pcId);
@@ -391,8 +417,11 @@ RCT_EXPORT_METHOD(receiverGetStats : (nonnull NSNumber *)pcId receiverId : (nonn
                         }];
 }
 
-RCT_EXPORT_METHOD(senderGetStats : (nonnull NSNumber *)pcId senderId : (nonnull NSString *)
-                      senderId resolver : (RCTPromiseResolveBlock)resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)senderGetStats:(NSInteger)peerConnectionId
+              senderId:(nonnull NSString *)senderId
+               resolve:(RCTPromiseResolveBlock)resolve
+                reject:(RCTPromiseRejectBlock)reject {
+    NSNumber *pcId = @(peerConnectionId);
     RTCPeerConnection *peerConnection = self.peerConnections[pcId];
     if (!peerConnection) {
         RCTLogWarn(@"PeerConnection %@ not found in senderGetStats()", pcId);
@@ -420,7 +449,8 @@ RCT_EXPORT_METHOD(senderGetStats : (nonnull NSNumber *)pcId senderId : (nonnull 
                       }];
 }
 
-RCT_EXPORT_METHOD(peerConnectionRestartIce : (nonnull NSNumber *)objectID) {
+- (void)peerConnectionRestartIce:(NSInteger)pcId {
+    NSNumber *objectID = @(pcId);
     RTCPeerConnection *peerConnection = self.peerConnections[objectID];
     if (!peerConnection) {
         return;
@@ -429,8 +459,8 @@ RCT_EXPORT_METHOD(peerConnectionRestartIce : (nonnull NSNumber *)objectID) {
     [peerConnection restartIce];
 }
 
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionAddTrack : (nonnull NSNumber *)objectID trackId : (NSString *)
-                                           trackId options : (NSDictionary *)options) {
+- (NSDictionary *)peerConnectionAddTrack:(NSInteger)pcId trackId:(NSString *)trackId options:(NSDictionary *)options {
+    NSNumber *objectID = @(pcId);
     __block id params = nil;
 
     dispatch_sync(self.workerQueue, ^{
@@ -468,8 +498,8 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionAddTrack : (nonnull NSNumbe
     return params;
 }
 
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionAddTransceiver : (nonnull NSNumber *)
-                                           objectID options : (NSDictionary *)options) {
+- (NSDictionary *)peerConnectionAddTransceiver:(NSInteger)pcId options:(NSDictionary *)options {
+    NSNumber *objectID = @(pcId);
     __block id params = nil;
 
     dispatch_sync(self.workerQueue, ^{
@@ -525,8 +555,8 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionAddTransceiver : (nonnull N
     return params;
 }
 
-RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionRemoveTrack : (nonnull NSNumber *)
-                                           objectID senderId : (nonnull NSString *)senderId) {
+- (NSNumber *)peerConnectionRemoveTrack:(NSInteger)pcId senderId:(nonnull NSString *)senderId {
+    NSNumber *objectID = @(pcId);
     __block BOOL ret = NO;
 
     dispatch_sync(self.workerQueue, ^{
@@ -932,8 +962,9 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(peerConnectionRemoveTrack : (nonnull NSNu
     // Unused in Unified Plan.
 }
 
-RCT_EXPORT_METHOD(generateCertificate : (NSDictionary *)options resolver : (RCTPromiseResolveBlock)
-                      resolve rejecter : (RCTPromiseRejectBlock)reject) {
+- (void)generateCertificate:(NSDictionary *)options
+                    resolve:(RCTPromiseResolveBlock)resolve
+                     reject:(RCTPromiseRejectBlock)reject {
     NSString *keyType = @"ECDSA";
     if (options[@"keyType"]) {
         NSString *type = options[@"keyType"];
