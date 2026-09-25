@@ -1,21 +1,23 @@
 package com.oney.WebRTCModule;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.util.Log;
-import android.view.View;
+import android.util.Rational;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 
+import androidx.annotation.Nullable;
 import androidx.core.view.ViewCompat;
 
-import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReadableMap;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.uimanager.events.RCTEventEmitter;
+import com.facebook.react.uimanager.UIManagerHelper;
+import com.facebook.react.uimanager.events.EventDispatcher;
 
 import org.webrtc.EglBase;
 import org.webrtc.Logging;
@@ -26,8 +28,6 @@ import org.webrtc.RendererCommon.ScalingType;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoTrack;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Objects;
 
@@ -150,15 +150,18 @@ public class WebRTCView extends ViewGroup {
     private VideoTrack videoTrack;
 
     /**
-     * The callback to be called when video dimensions change.
+     * Android picture-in-picture for this view, off until the {@code pictureInPictureEnabled}
+     * prop turns it on.
      */
-    private boolean onDimensionsChangeEnabled = false;
+    private final PictureInPictureController pictureInPicture;
 
     public WebRTCView(Context context) {
         super(context);
 
         surfaceViewRenderer = new SurfaceViewRenderer(context);
         addView(surfaceViewRenderer);
+        pictureInPicture =
+                new PictureInPictureController(this, surfaceViewRenderer, this::dispatchPictureInPictureChange);
 
         setMirror(false);
         setScalingType(DEFAULT_SCALING_TYPE);
@@ -230,7 +233,12 @@ public class WebRTCView extends ViewGroup {
             // infrastructure hooked up while this View is not attached to a
             // window. Additionally, a memory leak was solved in a similar way
             // on iOS.
+            if (surfaceViewRenderer.getParent() == null) {
+                // Picture-in-picture had moved it into the window when this view detached.
+                addView(surfaceViewRenderer, 0);
+            }
             tryAddRendererToVideoTrack();
+            pictureInPicture.onAttachedToWindow();
         } finally {
             super.onAttachedToWindow();
         }
@@ -244,6 +252,7 @@ public class WebRTCView extends ViewGroup {
             // infrastructure hooked up while this View is not attached to a
             // window. Additionally, a memory leak was solved in a similar way
             // on iOS.
+            pictureInPicture.onDetachedFromWindow();
             removeRendererFromVideoTrack();
         } finally {
             super.onDetachedFromWindow();
@@ -292,29 +301,19 @@ public class WebRTCView extends ViewGroup {
             // The onFrameResolutionChanged method call executes on the
             // surfaceViewRenderer's render Thread.
             post(requestSurfaceViewRendererLayoutRunnable);
+            post(pictureInPicture::onVideoChanged);
 
-            // Call the onDimensionsChange callback if it's enabled
-            if (onDimensionsChangeEnabled) {
-                post(() -> {
-                    try {
-                        ReactContext reactContext = (ReactContext) getContext();
-                        WritableMap params = Arguments.createMap();
-                        params.putInt("width", videoWidth);
-                        params.putInt("height", videoHeight);
-
-                        // Send the event through React Native's event system
-                        reactContext.getJSModule(RCTEventEmitter.class)
-                                .receiveEvent(getId(), "onDimensionsChange", params);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error calling onDimensionsChange callback", e);
-                    }
-                });
-            }
+            // Always sent: the new architecture passes no event props to tell whether JS listens.
+            post(() -> dispatchDimensionsChange(videoWidth, videoHeight));
         }
     }
 
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        if (surfaceViewRenderer.getParent() != this) {
+            // Picture-in-picture has it filling the window, which lays it out.
+            return;
+        }
         int height = b - t;
         int width = r - l;
 
@@ -414,7 +413,7 @@ public class WebRTCView extends ViewGroup {
         surfaceViewRenderer.requestLayout();
         // The above is not enough though when the video frame's dimensions or
         // rotation change. The following will suffice.
-        if (!ViewCompat.isInLayout(this)) {
+        if (surfaceViewRenderer.getParent() == this && !ViewCompat.isInLayout(this)) {
             onLayout(
                     /* changed */ false, getLeft(), getTop(), getRight(), getBottom());
         }
@@ -466,6 +465,7 @@ public class WebRTCView extends ViewGroup {
         // Both this instance ant its SurfaceViewRenderer take the value of
         // their scalingType properties into account upon their layouts.
         requestSurfaceViewRendererLayout();
+        pictureInPicture.onVideoChanged();
     }
 
     /**
@@ -535,6 +535,7 @@ public class WebRTCView extends ViewGroup {
                     cleanSurfaceViewRenderer();
                 }
             }
+            pictureInPicture.onVideoChanged();
         }
     }
 
@@ -600,12 +601,104 @@ public class WebRTCView extends ViewGroup {
         }
     }
 
+    @Nullable
+    Activity getCurrentActivity() {
+        ReactContext reactContext = (ReactContext) getContext();
+        return reactContext.getCurrentActivity();
+    }
+
+    ScalingType getScalingType() {
+        synchronized (layoutSyncRoot) {
+            return scalingType;
+        }
+    }
+
     /**
-     * Sets whether the onDimensionsChange callback should be called.
-     *
-     * @param enabled Whether the callback should be enabled.
+     * The shape of the video as displayed, rotation applied, or {@code null} before the first
+     * frame.
      */
-    public void setOnDimensionsChange(boolean enabled) {
-        this.onDimensionsChangeEnabled = enabled;
+    @Nullable
+    Rational getVideoAspectRatio() {
+        synchronized (layoutSyncRoot) {
+            if (frameWidth == 0 || frameHeight == 0) {
+                return null;
+            }
+            return frameRotation % 180 == 0 ? new Rational(frameWidth, frameHeight)
+                                            : new Rational(frameHeight, frameWidth);
+        }
+    }
+
+    boolean hasVideoTrack() {
+        return videoTrack != null;
+    }
+
+    /**
+     * Puts {@link #surfaceViewRenderer} back in this view after picture-in-picture moved it into
+     * the window.
+     */
+    void reattachRenderer() {
+        ViewParent parent = surfaceViewRenderer.getParent();
+        if (parent == this) {
+            return;
+        }
+        if (parent instanceof ViewGroup) {
+            ((ViewGroup) parent).removeView(surfaceViewRenderer);
+        }
+        // First, where the constructor put it, ahead of any children React adds.
+        addView(surfaceViewRenderer, 0);
+        requestSurfaceViewRendererLayout();
+    }
+
+    /**
+     * Sets whether this view handles picture-in-picture. Only one view should: the most recently
+     * enabled one does.
+     */
+    void setPictureInPictureEnabled(boolean enabled) {
+        pictureInPicture.setEnabled(enabled);
+    }
+
+    /** Sets whether leaving the app enters picture-in-picture by itself. */
+    void setAutoStartPictureInPicture(boolean autoStart) {
+        pictureInPicture.setAutoStart(autoStart);
+    }
+
+    /**
+     * Sets the shape of the picture-in-picture window. {@code null} derives it from the view and
+     * its {@code objectFit}.
+     */
+    void setPictureInPicturePreferredSize(@Nullable ReadableMap size) {
+        Rational aspectRatio = null;
+        if (size != null && size.hasKey("width") && size.hasKey("height") && !size.isNull("width")
+                && !size.isNull("height")) {
+            double width = size.getDouble("width");
+            double height = size.getDouble("height");
+            if (width > 0 && height > 0) {
+                aspectRatio = new Rational((int) Math.round(width * 1000), (int) Math.round(height * 1000));
+            }
+        }
+        pictureInPicture.setPreferredAspectRatio(aspectRatio);
+    }
+
+    void enterPictureInPicture() {
+        pictureInPicture.enterPictureInPicture();
+    }
+
+    private void dispatchDimensionsChange(int width, int height) {
+        ReactContext reactContext = (ReactContext) getContext();
+        EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, getId());
+        if (dispatcher == null) {
+            return;
+        }
+        dispatcher.dispatchEvent(new DimensionsChangeEvent(UIManagerHelper.getSurfaceId(this), getId(), width, height));
+    }
+
+    private void dispatchPictureInPictureChange(boolean isInPictureInPicture, boolean dismissed) {
+        ReactContext reactContext = (ReactContext) getContext();
+        EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, getId());
+        if (dispatcher == null) {
+            return;
+        }
+        dispatcher.dispatchEvent(new PictureInPictureChangeEvent(
+                UIManagerHelper.getSurfaceId(this), getId(), isInPictureInPicture, dismissed));
     }
 }

@@ -3,7 +3,6 @@
 
 #import <React/RCTBridgeModule.h>
 #import <React/RCTConvert.h>
-#import <React/RCTEventEmitter.h>
 
 #import <WebRTC/WebRTC.h>
 
@@ -21,8 +20,12 @@ static NSString *const kEventMediaStreamTrackMuteChanged = @"mediaStreamTrackMut
 static NSString *const kEventMediaStreamTrackEnded = @"mediaStreamTrackEnded";
 static NSString *const kEventPeerConnectionOnRemoveTrack = @"peerConnectionOnRemoveTrack";
 static NSString *const kEventPeerConnectionOnTrack = @"peerConnectionOnTrack";
+static NSString *const kEventLivestreamNetworkChanged = @"livestreamNetworkChanged";
 
-@interface WebRTCModule : RCTEventEmitter<RCTBridgeModule>
+@class LivestreamAudio;
+@class LivestreamNetworkMonitor;
+
+@interface WebRTCModule : NSObject<RCTBridgeModule>
 
 @property(nonatomic, strong) dispatch_queue_t workerQueue;
 
@@ -30,10 +33,30 @@ static NSString *const kEventPeerConnectionOnTrack = @"peerConnectionOnTrack";
 @property(nonatomic, strong) id<RTCVideoDecoderFactory> decoderFactory;
 @property(nonatomic, strong) id<RTCVideoEncoderFactory> encoderFactory;
 
+/**
+ * The livestream audio device the factory was built with; nil when the app set its own
+ * `audioDevice` on WebRTCModuleOptions, Info.plist turned it off, or not on iOS.
+ */
+@property(nonatomic, strong, readonly) LivestreamAudio *livestreamAudio;
+
+/** Follows the device's network while livestream sessions or the app listen; created on first use. */
+@property(atomic, strong) LivestreamNetworkMonitor *livestreamNetworkMonitor;
+
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, RTCPeerConnection *> *peerConnections;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, RTCMediaStream *> *localStreams;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, RTCMediaStreamTrack *> *localTracks;
 
 - (RTCMediaStream *)streamForReactTag:(NSString *)reactTag;
+
+/**
+ * Emits one of the events above to JS, with an NSDictionary body.
+ */
+- (void)sendEventWithName:(NSString *)eventName body:(id)body;
+
+/**
+ * The module instance currently loaded, if any. The new architecture's component views have no
+ * bridge to ask for it.
+ */
++ (WebRTCModule *)currentModule;
 
 @end

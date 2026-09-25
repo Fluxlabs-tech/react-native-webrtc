@@ -1,0 +1,17 @@
+# Lab output: telemetry and the runs' index, build products, derived data.
+zooplab/logs/
+results/
+zooplab/zooplab
+zooplab/labclient
+zooplab/zooplab.pid
+ls-ios-dev-dd/
+*.log
+*.mov
+*.mp4
+# Made by zooplab/run.sh from upstream plus third_party/interceptor.patch.
+zooplab/third_party/interceptor/
+# Certificates and keys for local HTTPS tests.
+*.crt
+*.key
+# Test notes with client details: kept out of this public repository.
+TEST_LOG.md

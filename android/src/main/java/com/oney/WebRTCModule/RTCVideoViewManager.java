@@ -1,20 +1,33 @@
 package com.oney.WebRTCModule;
 
+import androidx.annotation.Nullable;
+
 import com.facebook.react.bridge.ReadableMap;
-import com.facebook.react.uimanager.SimpleViewManager;
 import com.facebook.react.uimanager.ThemedReactContext;
-import com.facebook.react.uimanager.annotations.ReactProp;
-import com.facebook.react.uimanager.events.RCTEventEmitter;
+import com.facebook.react.uimanager.ViewGroupManager;
+import com.facebook.react.uimanager.ViewManagerDelegate;
+import com.facebook.react.viewmanagers.RTCVideoViewManagerDelegate;
+import com.facebook.react.viewmanagers.RTCVideoViewManagerInterface;
 
-import java.util.HashMap;
-import java.util.Map;
-
-public class RTCVideoViewManager extends SimpleViewManager<WebRTCView> {
+/**
+ * The {@code RTCVideoView} native component. Its props and commands come through the delegate
+ * codegen generates from src/RTCVideoViewNativeComponent.ts.
+ */
+public class RTCVideoViewManager
+        extends ViewGroupManager<WebRTCView> implements RTCVideoViewManagerInterface<WebRTCView> {
     private static final String REACT_CLASS = "RTCVideoView";
+
+    private final ViewManagerDelegate<WebRTCView> delegate = new RTCVideoViewManagerDelegate<>(this);
 
     @Override
     public String getName() {
         return REACT_CLASS;
+    }
+
+    @Nullable
+    @Override
+    protected ViewManagerDelegate<WebRTCView> getDelegate() {
+        return delegate;
     }
 
     @Override
@@ -34,7 +47,7 @@ public class RTCVideoViewManager extends SimpleViewManager<WebRTCView> {
      * specified by its associated {@code streamURL} during its rendering,
      * {@code true}; otherwise, {@code false}.
      */
-    @ReactProp(name = "mirror")
+    @Override
     public void setMirror(WebRTCView view, boolean mirror) {
         view.setMirror(mirror);
     }
@@ -51,13 +64,13 @@ public class RTCVideoViewManager extends SimpleViewManager<WebRTCView> {
      * {@code objectFit} property of the JavaScript counterpart of
      * {@code WebRTCView} i.e. {@code RTCView}.
      */
-    @ReactProp(name = "objectFit")
-    public void setObjectFit(WebRTCView view, String objectFit) {
+    @Override
+    public void setObjectFit(WebRTCView view, @Nullable String objectFit) {
         view.setObjectFit(objectFit);
     }
 
-    @ReactProp(name = "streamURL")
-    public void setStreamURL(WebRTCView view, String streamURL) {
+    @Override
+    public void setStreamURL(WebRTCView view, @Nullable String streamURL) {
         view.setStreamURL(streamURL);
     }
 
@@ -71,28 +84,69 @@ public class RTCVideoViewManager extends SimpleViewManager<WebRTCView> {
      * to be set.
      * @param zOrder The z-order to set on the specified {@code WebRTCView}.
      */
-    @ReactProp(name = "zOrder")
+    @Override
     public void setZOrder(WebRTCView view, int zOrder) {
         view.setZOrder(zOrder);
     }
 
     /**
-     * Sets the callback for when video dimensions change.
+     * Sets whether a specific {@link WebRTCView} handles picture-in-picture. Only one view
+     * should: the most recently enabled one does.
      *
-     * @param view The {@code WebRTCView} on which the callback is to be set.
-     * @param onDimensionsChange The callback to be called when video dimensions change.
+     * @param view The {@code WebRTCView} on which the flag is to be set.
+     * @param enabled Whether the view handles picture-in-picture.
      */
-    @ReactProp(name = "onDimensionsChange")
-    public void setOnDimensionsChange(WebRTCView view, boolean onDimensionsChange) {
-        view.setOnDimensionsChange(onDimensionsChange);
+    @Override
+    public void setPictureInPictureEnabled(WebRTCView view, boolean enabled) {
+        view.setPictureInPictureEnabled(enabled);
+    }
+
+    /**
+     * Sets whether leaving the app enters picture-in-picture by itself.
+     *
+     * @param view The {@code WebRTCView} on which the flag is to be set.
+     * @param autoStart Whether picture-in-picture starts automatically.
+     */
+    @Override
+    public void setAutoStartPictureInPicture(WebRTCView view, boolean autoStart) {
+        view.setAutoStartPictureInPicture(autoStart);
+    }
+
+    /**
+     * iOS only: Android leaves picture-in-picture when the user returns to the app.
+     */
+    @Override
+    public void setAutoStopPictureInPicture(WebRTCView view, boolean autoStop) {}
+
+    /**
+     * Sets the shape of the picture-in-picture window, as {@code {width, height}}. Only the ratio
+     * matters on Android.
+     */
+    @Override
+    public void setPictureInPicturePreferredSize(WebRTCView view, @Nullable ReadableMap size) {
+        view.setPictureInPicturePreferredSize(size);
     }
 
     @Override
-    public Map<String, Object> getExportedCustomDirectEventTypeConstants() {
-        Map<String, Object> eventTypeConstants = new HashMap<>();
-        Map<String, String> dimensionsChangeEvent = new HashMap<>();
-        dimensionsChangeEvent.put("registrationName", "onDimensionsChange");
-        eventTypeConstants.put("onDimensionsChange", dimensionsChangeEvent);
-        return eventTypeConstants;
+    public void startPictureInPicture(WebRTCView view) {
+        view.enterPictureInPicture();
     }
+
+    /**
+     * Android has no call to leave picture-in-picture; the user does.
+     */
+    @Override
+    public void stopPictureInPicture(WebRTCView view) {}
+
+    /**
+     * iOS only, deprecated.
+     */
+    @Override
+    public void startIOSPIP(WebRTCView view) {}
+
+    /**
+     * iOS only, deprecated.
+     */
+    @Override
+    public void stopIOSPIP(WebRTCView view) {}
 }

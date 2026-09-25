@@ -112,6 +112,27 @@
         config.audioJitterBufferMaxPackets = [RCTConvert int:json[@"audioJitterBufferMaxPackets"]];
     }
 
+    if (json[@"audioJitterBufferFastAccelerate"] != nil &&
+        [json[@"audioJitterBufferFastAccelerate"] isKindOfClass:[NSNumber class]]) {
+        config.audioJitterBufferFastAccelerate = [RCTConvert BOOL:json[@"audioJitterBufferFastAccelerate"]];
+    }
+
+    if (json[@"continualGatheringPolicy"] != nil && [json[@"continualGatheringPolicy"] isKindOfClass:[NSString class]]) {
+        NSString *continualGatheringPolicy = json[@"continualGatheringPolicy"];
+        if ([continualGatheringPolicy isEqualToString:@"gather_once"]) {
+            config.continualGatheringPolicy = RTCContinualGatheringPolicyGatherOnce;
+        } else if ([continualGatheringPolicy isEqualToString:@"gather_continually"]) {
+            config.continualGatheringPolicy = RTCContinualGatheringPolicyGatherContinually;
+        }
+    }
+
+    if (json[@"iceCandidatePoolSize"] != nil && [json[@"iceCandidatePoolSize"] isKindOfClass:[NSNumber class]]) {
+        int iceCandidatePoolSize = [RCTConvert int:json[@"iceCandidatePoolSize"]];
+        if (iceCandidatePoolSize > 0) {
+            config.iceCandidatePoolSize = iceCandidatePoolSize;
+        }
+    }
+
     if (json[@"bundlePolicy"] != nil && [json[@"bundlePolicy"] isKindOfClass:[NSString class]]) {
         NSString *bundlePolicy = json[@"bundlePolicy"];
         if ([bundlePolicy isEqualToString:@"balanced"]) {

@@ -1,13 +1,11 @@
-import { NativeModules, NativeEventEmitter, EmitterSubscription } from 'react-native';
+import { EmitterSubscription } from 'react-native';
 // @ts-ignore
 import EventEmitter from 'react-native/Libraries/vendor/emitter/EventEmitter';
 
-const { WebRTCModule } = NativeModules;
+import WebRTCModule from './NativeWebRTCModule';
 
-// This emitter is going to be used to listen to all the native events (once) and then
-// re-emit them on a JS-only emitter.
-const nativeEmitter = new NativeEventEmitter(WebRTCModule);
-
+// Each of these is an event emitter of the TurboModule (see NativeWebRTCModule.ts). They are
+// listened to once, and re-emitted on a JS-only emitter.
 const NATIVE_EVENTS = [
     'peerConnectionSignalingStateChanged',
     'peerConnectionStateChanged',
@@ -23,14 +21,17 @@ const NATIVE_EVENTS = [
     'dataChannelDidChangeBufferedAmount',
     'mediaStreamTrackMuteChanged',
     'mediaStreamTrackEnded',
-];
+    'livestreamNetworkChanged',
+] as const;
+
+type NativeEvent = typeof NATIVE_EVENTS[number];
 
 const eventEmitter = new EventEmitter();
 
 export function setupNativeEvents() {
     for (const eventName of NATIVE_EVENTS) {
-        nativeEmitter.addListener(eventName, (...args) => {
-            eventEmitter.emit(eventName, ...args);
+        WebRTCModule[eventName](event => {
+            eventEmitter.emit(eventName, event);
         });
     }
 }
@@ -41,7 +42,7 @@ type Listener = unknown;
 const _subscriptions: Map<Listener, EmitterSubscription[]> = new Map();
 
 export function addListener(listener: Listener, eventName: string, eventHandler: EventHandler): void {
-    if (!NATIVE_EVENTS.includes(eventName)) {
+    if (!NATIVE_EVENTS.includes(eventName as NativeEvent)) {
         throw new Error(`Invalid event: ${eventName}`);
     }
 

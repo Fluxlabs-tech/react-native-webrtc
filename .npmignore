@@ -7,3 +7,7 @@ android/build/
 *.tgz
 *.zip
 .github
+*.log
+tools/livestream-lab/
+# A type-checking shim for this repo; postbuild copies every src/*.d.ts.
+lib/typescript/codegen.d.ts

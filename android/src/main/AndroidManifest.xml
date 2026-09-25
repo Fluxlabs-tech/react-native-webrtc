@@ -2,6 +2,9 @@
           package="com.oney.WebRTCModule"
           xmlns:tools="http://schemas.android.com/tools"
     >
+    <!-- Livestream sessions follow the device's network (LivestreamNetworkMonitor). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application>
         <service
                 android:name=".MediaProjectionService"

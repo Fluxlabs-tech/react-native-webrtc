@@ -4,8 +4,6 @@
 #import <objc/runtime.h>
 #import <stdatomic.h>
 
-#import <React/RCTBridge.h>
-#import <React/RCTEventDispatcher.h>
 #import <React/RCTLog.h>
 
 #import <WebRTC/RTCVideoRenderer.h>

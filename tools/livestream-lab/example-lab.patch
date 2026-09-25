@@ -1,0 +1,142 @@
+diff --git a/examples/LivestreamExample/App.tsx b/examples/LivestreamExample/App.tsx
+index 19b044e..7929092 100644
+--- a/examples/LivestreamExample/App.tsx
++++ b/examples/LivestreamExample/App.tsx
+@@ -5,6 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+ 
+ import GoLiveScreen from './src/GoLiveScreen';
+ import WatchScreen from './src/WatchScreen';
++import { connectLab } from './src/lab';
+ import { Segmented, colors } from './src/ui';
+ 
+ type Tab = 'watch' | 'live';
+@@ -82,7 +83,11 @@ export default function App() {
+     };
+     Linking.getInitialURL().then(open);
+     const subscription = Linking.addEventListener('url', ({ url }) => open(url));
+-    return () => subscription.remove();
++    const disconnectLab = connectLab(open);
++    return () => {
++      subscription.remove();
++      disconnectLab();
++    };
+   }, []);
+ 
+   return (
+diff --git a/examples/LivestreamExample/src/WatchScreen.tsx b/examples/LivestreamExample/src/WatchScreen.tsx
+index 0518a2e..c09e0cf 100644
+--- a/examples/LivestreamExample/src/WatchScreen.tsx
++++ b/examples/LivestreamExample/src/WatchScreen.tsx
+@@ -15,6 +15,7 @@ import {
+ import type { StreamLink } from '../App';
+ import { AntMediaPlayer } from './antMedia';
+ import { DEFAULTS, ICE_SERVERS } from './config';
++import { labRawVideo, labReport } from './lab';
+ import { Button, Card, Field, Meter, Segmented, Stats, StatusLine, Toggle, styles } from './ui';
+ import { usePlayoutLevels } from './usePlayoutLevels';
+ 
+@@ -83,18 +84,28 @@ export default function WatchScreen({ link }: { link: StreamLink | null }) {
+     const kind: Source = linked?.url ? sourceOf(linked.url) : source;
+     const auth = (linked?.token ?? token).trim() || undefined;
+     const audioOnlyFallback = linked?.fallback ?? fallback;
++    let state: LivestreamState = 'connecting';
+     const options = {
+       iceServers: ICE_SERVERS,
+       audioOnlyFallback,
+       onStream: setStream,
+       onStateChange: (next: LivestreamState, reason?: string) => {
++        state = next;
+         setStatus({ state: next, reason });
++        labReport({ type: 'state', state: next, reason });
+         if (next !== 'connected') setStats(null);
+         if (next === 'offline' || next === 'reconnecting' || next === 'failed') setStream(null);
+         if (next === 'failed') setPlaying(false);
+       },
+-      onStats: setStats,
+-      onAudioOnlyChange: setAudioOnly,
++      onStats: (next: LivestreamStats) => {
++        setStats(next);
++        labReport({ type: 'stats', source: kind, state, quality: next.quality, stats: next });
++        labRawVideo(session.current?.peerConnection);
++      },
++      onAudioOnlyChange: (next: boolean) => {
++        setAudioOnly(next);
++        labReport({ type: 'audioOnly', audioOnly: next });
++      },
+     };
+     let next: LivestreamViewer;
+     if (kind === 'whep') {
+diff --git a/examples/LivestreamExample/src/lab.ts b/examples/LivestreamExample/src/lab.ts
+new file mode 100644
+index 0000000..fc785fa
+--- /dev/null
++++ b/examples/LivestreamExample/src/lab.ts
+@@ -0,0 +1,68 @@
++import { Platform } from 'react-native';
++
++// Test-lab hooks, from tools/livestream-lab/example-lab.patch: remote control and telemetry for runs
++// on devices against the local lab, when EXPO_PUBLIC_LAB_URL is set. Not part of the example: take
++// them out again with `git apply -R tools/livestream-lab/example-lab.patch`.
++
++const LAB_URL = process.env.EXPO_PUBLIC_LAB_URL ?? '';
++const device =
++  Platform.OS === 'android' ? `android-${(Platform.constants as { Model?: string }).Model ?? 'device'}` : 'ios';
++
++let socket: WebSocket | null = null;
++// Messages from while the lab was out of reach, sent when it is back.
++const backlog: string[] = [];
++
++/** Opens links the lab sends, as if tapped. Returns the function that disconnects. */
++export function connectLab(openLink: (url: string) => void): () => void {
++  if (!LAB_URL) return () => {};
++  let closed = false;
++  let retry: ReturnType<typeof setTimeout> | null = null;
++  const open = () => {
++    const ws = new WebSocket(`${LAB_URL}?device=${encodeURIComponent(device)}`);
++    ws.onopen = () => {
++      socket = ws;
++      ws.send(JSON.stringify({ type: 'hello', device, platform: Platform.OS, at: Date.now() }));
++      for (const message of backlog.splice(0)) ws.send(message);
++    };
++    ws.onmessage = (event) => {
++      try {
++        const message = JSON.parse(String(event.data));
++        if (message.type === 'open' && typeof message.url === 'string') openLink(message.url);
++      } catch {
++        // Not for us.
++      }
++    };
++    ws.onerror = () => {};
++    ws.onclose = () => {
++      if (socket === ws) socket = null;
++      if (!closed) retry = setTimeout(open, 3000);
++    };
++  };
++  open();
++  return () => {
++    closed = true;
++    if (retry) clearTimeout(retry);
++    socket?.close();
++    socket = null;
++  };
++}
++
++/** Sends the lab a message, when connected. */
++export function labReport(message: object): void {
++  if (!LAB_URL) return;
++  const text = JSON.stringify({ ...message, at: Date.now() });
++  if (socket?.readyState === WebSocket.OPEN) socket.send(text);
++  else if (backlog.push(text) > 300) backlog.shift();
++}
++
++/** The raw inbound video stats, for looking into the decode path. */
++export function labRawVideo(pc: { getStats: () => Promise<any> } | null | undefined): void {
++  if (!pc || socket?.readyState !== WebSocket.OPEN) return;
++  pc.getStats()
++    .then((report: any) =>
++      report.forEach((entry: any) => {
++        if (entry.type === 'inbound-rtp' && entry.kind === 'video') labReport({ type: 'rawVideo', video: entry });
++      })
++    )
++    .catch(() => {});
++}

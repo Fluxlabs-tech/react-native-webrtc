@@ -10,6 +10,13 @@ const DEFAULT_VIDEO_CONSTRAINTS = {
 
 const FACING_MODES = [ 'user', 'environment' ];
 
+// The standard audio processing constraints, under the names libwebrtc reads.
+const AUDIO_PROCESSING_CONSTRAINTS = {
+    autoGainControl: 'googAutoGainControl',
+    echoCancellation: 'googEchoCancellation',
+    noiseSuppression: 'googNoiseSuppression'
+};
+
 const ASPECT_RATIO = 16 / 9;
 
 export type RTCOfferOptions  = {
@@ -74,10 +81,38 @@ function extractNumber(constraints, prop) {
     }
 }
 
+function extractBoolean(constraints, prop) {
+    const value = constraints[prop];
+
+    if (typeof value === 'boolean') {
+        return value;
+    } else if (value && typeof value === 'object') {
+        for (const v of [ 'exact', 'ideal' ]) {
+            if (typeof value[v] === 'boolean') {
+                return value[v];
+            }
+        }
+    }
+}
+
 function normalizeMediaConstraints(constraints, mediaType) {
     switch (mediaType) {
-        case 'audio':
-            return constraints;
+        case 'audio': {
+            // Anything else passes through, libwebrtc's own names included; those win.
+            const c = { ...constraints };
+
+            for (const [ name, nativeName ] of Object.entries(AUDIO_PROCESSING_CONSTRAINTS)) {
+                const value = extractBoolean(constraints, name);
+
+                delete c[name];
+
+                if (value !== undefined && c[nativeName] === undefined) {
+                    c[nativeName] = String(value);
+                }
+            }
+
+            return c;
+        }
 
         case 'video': {
             const c = {

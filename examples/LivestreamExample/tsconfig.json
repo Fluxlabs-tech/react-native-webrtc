@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    // The library is linked from ../.., whose own node_modules hold older React typings; the
+    // library's typings must see this app's, as they would installed from npm. For type checking
+    // only: app.json keeps Metro from resolving with these paths.
+    "paths": {
+      "react": ["./node_modules/@types/react"]
+    }
+  }
+}
