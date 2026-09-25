@@ -8,3 +8,4 @@ android/build/
 *.zip
 .github
 *.log
+tools/livestream-lab/

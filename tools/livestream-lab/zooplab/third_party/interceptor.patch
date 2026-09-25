@@ -1,0 +1,33 @@
+diff -ru a/internal/cc/feedback_adapter.go b/internal/cc/feedback_adapter.go
+--- a/internal/cc/feedback_adapter.go
++++ b/internal/cc/feedback_adapter.go
+@@ -33,7 +33,11 @@
+ 
+ // NewFeedbackAdapter returns a new FeedbackAdapter.
+ func NewFeedbackAdapter() *FeedbackAdapter {
+-	return &FeedbackAdapter{history: newFeedbackHistory(250)}
++	// zooplab patch: upstream keeps 250 packets, about 0.5 s at 4 Mbps. With
++	// an unpaced sender and a 300-1000 ms bottleneck queue the TWCC feedback
++	// arrives after the entries were evicted, every lookup misses, and GCC
++	// never updates. 8192 packets covers several seconds.
++	return &FeedbackAdapter{history: newFeedbackHistory(8192)}
+ }
+ 
+ func (f *FeedbackAdapter) onSentRFC8888(ts time.Time, header *rtp.Header, size int) error {
+diff -ru a/pkg/gcc/arrival_group_accumulator.go b/pkg/gcc/arrival_group_accumulator.go
+--- a/pkg/gcc/arrival_group_accumulator.go
++++ b/pkg/gcc/arrival_group_accumulator.go
+@@ -28,6 +28,13 @@
+ 	group := arrivalGroup{}
+ 	for acks := range in {
+ 		for _, next := range acks {
++			// zooplab patch: lost packets carry no arrival time. Upstream can
++			// start (or extend) a group with one, giving the group a zero
++			// arrival time; the next delay-variation measurement then
++			// overflows and freezes the Kalman filter's gain near zero.
++			if next.Arrival.IsZero() || next.Departure.IsZero() {
++				continue
++			}
+ 			if !init {
+ 				group = newArrivalGroup(next)
+ 				init = true

@@ -1,0 +1,25 @@
+logLevel: info
+api: yes
+apiAddress: 127.0.0.1:9997
+rtsp: yes
+rtspAddress: :8554
+rtmp: yes
+rtmpAddress: :1935
+hls: no
+srt: no
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcAdditionalHosts: [192.168.1.131]
+webrtcAllowOrigins: ['*']
+paths:
+  # Sellers publish RTMP (H.264 + AAC) to Ant Media app "live", which converts the AAC to
+  # Opus for WebRTC viewers and forwards the video as it is. The same here: what WebRTC viewers
+  # get is ams/<id>. WHIP publishers go to ams/<id> directly (already Opus).
+  "~^live/(.+)$":
+    runOnAvailable: >
+      ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://192.168.1.131:8554/$MTX_PATH
+      -map 0 -c:v copy -c:a libopus -b:a 128k -ac 2 -ar 48000 -application audio
+      -f rtsp -rtsp_transport tcp rtsp://192.168.1.131:8554/ams/$G1
+    runOnAvailableRestart: yes
+  all_others:

@@ -145,7 +145,7 @@ What the server and the host do counts for more:
 - **Adaptive bitrate** on the server, from renditions it transcodes or a host's simulcast, gives a phone on a weak connection a lower rendition rather than a broken picture. Without it every viewer gets the host's bitrate, and a phone with less bandwidth than that cannot play the video at all; audio only is then the best a player can do. On a 3 Mbps connection a 2.5 Mbps stream played at 30 fps, and a 4 Mbps one at 1 to 3.
 - **A keyframe every 1 to 2 seconds** from an RTMP encoder. Nothing can ask it for one, so a viewer that loses one waits for the next. Every second rather than every two cut the time frozen after outages by a fifth to a third.
 
-Measured with the example on a Nothing Phone (2) (Android 14) and an iPhone X (iOS 16), playing a 4 Mbps 720×1280 stream published over RTMP (H.264, and AAC the server turns into Opus), through a network emulator:
+Measured with the example on a Nothing Phone (2) (Android 14) and an iPhone X (iOS 16), playing a 4 Mbps 720×1280 stream published over RTMP (H.264, and AAC the server turns into Opus), through a network emulator ([`tools/livestream-lab`](tools/livestream-lab)):
 
 | Network | Android | iPhone (1.2 s playout delay) |
 | --- | --- | --- |
