@@ -1,10 +1,7 @@
-import { NativeModules } from 'react-native';
-
+import WebRTCModule from './NativeWebRTCModule';
 import getDisplayMedia, { Constraints as DisplayMediaConstraints } from './getDisplayMedia';
 import getUserMedia, { Constraints as UserMediaConstraints } from './getUserMedia';
 import { Event, EventTarget, getEventAttributeValue, setEventAttributeValue } from './vendor/event-target-shim';
-
-const { WebRTCModule } = NativeModules;
 
 type MediaDevicesEventMap = {
     devicechange: Event<'devicechange'>

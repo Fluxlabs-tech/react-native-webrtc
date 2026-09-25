@@ -1,21 +1,42 @@
 package com.oney.WebRTCModule;
 
-import com.facebook.react.ReactPackage;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import com.facebook.react.BaseReactPackage;
 import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.ReactApplicationContext;
+import com.facebook.react.module.model.ReactModuleInfo;
+import com.facebook.react.module.model.ReactModuleInfoProvider;
 import com.facebook.react.uimanager.ViewManager;
 
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
-public class WebRTCModulePackage implements ReactPackage {
+/**
+ * WebRTCModule, a TurboModule created when JS first asks for it, and the RTCVideoView component.
+ */
+public class WebRTCModulePackage extends BaseReactPackage {
+    @Nullable
     @Override
-    public List<NativeModule> createNativeModules(ReactApplicationContext reactContext) {
-        return Arrays.<NativeModule>asList(new WebRTCModule(reactContext));
+    public NativeModule getModule(@NonNull String name, @NonNull ReactApplicationContext reactContext) {
+        return name.equals(NativeWebRTCModuleSpec.NAME) ? new WebRTCModule(reactContext) : null;
     }
 
     @Override
-    public List<ViewManager> createViewManagers(ReactApplicationContext reactContext) {
-        return Arrays.<ViewManager>asList(new RTCVideoViewManager());
+    public ReactModuleInfoProvider getReactModuleInfoProvider() {
+        return () -> Collections.singletonMap(NativeWebRTCModuleSpec.NAME,
+                new ReactModuleInfo(NativeWebRTCModuleSpec.NAME,
+                        WebRTCModule.class.getName(),
+                        /* canOverrideExistingModule */ false,
+                        /* needsEagerInit */ false,
+                        /* isCxxModule */ false,
+                        /* isTurboModule */ true));
+    }
+
+    @NonNull
+    @Override
+    public List<ViewManager> createViewManagers(@NonNull ReactApplicationContext reactContext) {
+        return Collections.<ViewManager>singletonList(new RTCVideoViewManager());
     }
 }

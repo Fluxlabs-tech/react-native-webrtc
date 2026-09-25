@@ -1,10 +1,9 @@
-import { NativeModules } from 'react-native';
-
 import { addListener, removeListener } from './EventEmitter';
 import Logger from './Logger';
 import MediaStream from './MediaStream';
 import MediaStreamTrack from './MediaStreamTrack';
 import MediaStreamTrackEvent from './MediaStreamTrackEvent';
+import WebRTCModule from './NativeWebRTCModule';
 import RTCCertificate from './RTCCertificate';
 import RTCDataChannel from './RTCDataChannel';
 import RTCDataChannelEvent from './RTCDataChannelEvent';
@@ -22,7 +21,6 @@ import { RTCOfferOptions } from './RTCUtil';
 import { Event, EventTarget, getEventAttributeValue, setEventAttributeValue } from './vendor/event-target-shim';
 
 const log = new Logger('pc');
-const { WebRTCModule } = NativeModules;
 
 type RTCSignalingState =
     | 'stable'
@@ -47,20 +45,29 @@ type RTCDataChannelInit = {
     id?: number
 };
 
-type RTCIceServer = {
+export type RTCIceServer = {
     credential?: string,
     url?: string, // Deprecated.
     urls?: string | string[],
     username?: string
 };
 
-type RTCConfiguration = {
+export type RTCConfiguration = {
     bundlePolicy?: 'balanced' | 'max-compat' | 'max-bundle',
     certificates?: RTCCertificate[],
     iceCandidatePoolSize?: number,
     iceServers?: RTCIceServer[],
     iceTransportPolicy?: 'all' | 'relay',
-    rtcpMuxPolicy?: 'negotiate' | 'require'
+    rtcpMuxPolicy?: 'negotiate' | 'require',
+
+    // libwebrtc's own, beyond the standard.
+    /** Packets the audio jitter buffer holds. Android defaults to 50, one second of audio. */
+    audioJitterBufferMaxPackets?: number,
+    audioJitterBufferFastAccelerate?: boolean,
+    /** Keep gathering as networks come and go, so ICE can move to a new one without a restart. */
+    continualGatheringPolicy?: 'gather_once' | 'gather_continually',
+    iceBackupCandidatePairPingInterval?: number,
+    iceConnectionReceivingTimeout?: number
 };
 
 type RTCPeerConnectionEventMap = {
@@ -166,7 +173,7 @@ export default class RTCPeerConnection extends EventTarget<RTCPeerConnectionEven
             }
         }
 
-        if (!WebRTCModule.peerConnectionInit(configuration, this._pcId)) {
+        if (!WebRTCModule.peerConnectionInit(configuration ?? null, this._pcId)) {
             throw new Error('Failed to initialize PeerConnection, check the native logs!');
         }
 
@@ -880,7 +887,7 @@ export default class RTCPeerConnection extends EventTarget<RTCPeerConnectionEven
             }
         }
 
-        const channelInfo = WebRTCModule.createDataChannel(this._pcId, String(label), dataChannelDict);
+        const channelInfo = WebRTCModule.createDataChannel(this._pcId, String(label), dataChannelDict ?? null);
 
         if (channelInfo === null) {
             throw new TypeError('Failed to create new DataChannel');

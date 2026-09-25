@@ -2,6 +2,8 @@ examples
 lib
 src/vendor
 tools
+plugin
+app.plugin.js
 
 metro.*.js
 react-native.config.js

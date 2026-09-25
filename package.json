@@ -1,19 +1,21 @@
 {
-  "name": "react-native-webrtc",
-  "version": "124.0.8",
+  "name": "@fluxlabs/react-native-webrtc",
+  "version": "124.2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/react-native-webrtc/react-native-webrtc.git"
+    "url": "git+https://github.com/Fluxlabs-tech/react-native-webrtc.git"
   },
-  "description": "WebRTC for React Native",
+  "description": "WebRTC for React Native, with seamless Android picture-in-picture. A Fluxlabs fork of react-native-webrtc.",
   "license": "MIT",
-  "homepage": "https://github.com/react-native-webrtc/react-native-webrtc",
+  "homepage": "https://github.com/Fluxlabs-tech/react-native-webrtc/tree/zoop/124#readme",
   "keywords": [
     "react-component",
     "react-native",
     "ios",
     "android",
-    "webrtc"
+    "webrtc",
+    "picture-in-picture",
+    "pip"
   ],
   "react-native": "src/index.ts",
   "types": "lib/typescript/index.d.ts",
@@ -24,16 +26,19 @@
     "debug": "4.3.4"
   },
   "peerDependencies": {
-    "react-native": ">=0.60.0"
+    "react-native": ">=0.76.0",
+    "expo": "*"
+  },
+  "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    }
   },
   "scripts": {
     "lint": "eslint --max-warnings 0 . && tsc --noEmit",
     "lintfix": "eslint --max-warnings 0 --fix . && tsc --noEmit",
     "prepare": "husky install && bob build && node tools/postbuild.mjs",
     "format": "tools/format.sh"
-  },
-  "bugs": {
-    "url": "https://github.com/react-native-webrtc/react-native-webrtc/issues"
   },
   "devDependencies": {
     "@types/debug": "4.1.7",
@@ -60,5 +65,19 @@
       "module",
       "typescript"
     ]
+  },
+  "codegenConfig": {
+    "name": "RNWebRTCSpec",
+    "type": "all",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.oney.WebRTCModule"
+    },
+    "ios": {
+      "componentProvider": {
+        "RTCVideoView": "RTCVideoViewComponentView",
+        "ScreenCapturePickerView": "ScreenCapturePickerViewComponentView"
+      }
+    }
   }
 }

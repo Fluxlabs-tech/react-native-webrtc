@@ -11,13 +11,43 @@
 
 @property(nonnull, nonatomic, strong) UIView *fallbackView;
 
+/** Mirrors pictureInPictureActive, which is main-thread state, for reads from other threads. */
+@property(atomic, assign) BOOL pictureInPictureActive;
+
 @end
 
 @implementation PIPController
 
+/** Every live controller, held weakly, for isAnyPictureInPictureActive. */
+static NSHashTable<PIPController *> *PIPControllerInstances(void) {
+    static NSHashTable *instances;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        instances = [NSHashTable weakObjectsHashTable];
+    });
+    return instances;
+}
+
++ (BOOL)isAnyPictureInPictureActive {
+    NSHashTable<PIPController *> *instances = PIPControllerInstances();
+    @synchronized(instances) {
+        for (PIPController *controller in instances) {
+            if (controller.pictureInPictureActive) {
+                return YES;
+            }
+        }
+    }
+    return NO;
+}
+
 - (instancetype)initWithSourceView:(UIView *)sourceView {
     if (self = [super init]) {
         self.sourceView = sourceView;
+
+        NSHashTable<PIPController *> *instances = PIPControllerInstances();
+        @synchronized(instances) {
+            [instances addObject:self];
+        }
 
         _fallbackView = [[UIView alloc] initWithFrame:CGRectZero];
         _fallbackView.translatesAutoresizingMaskIntoConstraints = false;
@@ -56,7 +86,9 @@
                         change:(NSDictionary *)change
                        context:(void *)context {
     if ([keyPath isEqualToString:@"pictureInPictureActive"]) {
-        _sampleView.shouldRender = [change[NSKeyValueChangeNewKey] boolValue];
+        BOOL active = [change[NSKeyValueChangeNewKey] boolValue];
+        _sampleView.shouldRender = active;
+        self.pictureInPictureActive = active;
     }
 }
 
@@ -155,6 +187,12 @@
     }
 }
 
+- (void)didChangePictureInPicture:(BOOL)isInPictureInPicture {
+    if ([self.delegate respondsToSelector:@selector(didChangePictureInPicture:)]) {
+        [self.delegate didChangePictureInPicture:isInPictureInPicture];
+    }
+}
+
 - (void)dealloc {
     [_videoTrack removeRenderer:_sampleView];
     [_pipController removeObserver:self forKeyPath:@"pictureInPictureActive"];
@@ -182,6 +220,7 @@
     @abstract    Delegate can implement this method to be notified when Picture in Picture did start.
  */
 - (void)pictureInPictureControllerDidStartPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
+    [self didChangePictureInPicture:YES];
     NSLog(@"%@", NSStringFromSelector(_cmd));  // Objective-C
 }
 
@@ -215,6 +254,7 @@
     @abstract    Delegate can implement this method to be notified when Picture in Picture did stop.
  */
 - (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
+    [self didChangePictureInPicture:NO];
     NSLog(@"%@", NSStringFromSelector(_cmd));  // Objective-C
 }
 
