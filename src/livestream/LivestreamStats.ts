@@ -13,9 +13,26 @@ export type InboundVideoStats = {
     jitterBufferMs: number;
     /** Share of the interval the picture stood still, once it had started. */
     frozenPercent: number;
+    /** Share of the frames received over the interval dropped before display. */
+    droppedPercent: number;
+    /**
+     * A frame has been decoded since video started, or since it resumed after a pause on purpose:
+     * there is a picture, which can stand still.
+     */
+    started: boolean;
+    /**
+     * Stops of the picture that ended over the interval, once it had started. Freezes: a frame far
+     * later than the ones before it. Pauses: no frames for seconds, which libwebrtc counts apart.
+     */
+    freezesEnded: number;
+    pausesEnded: number;
+    /** How long those stops lasted, all told: longer than the interval when one began before it. */
+    stoppedSeconds: number;
     /** Since the connection started. */
     freezeCount: number;
     freezeSeconds: number;
+    pauseCount: number;
+    pauseSeconds: number;
     framesDropped: number;
     nackCount: number;
     pliCount: number;
@@ -189,7 +206,7 @@ export default class LivestreamStatsSampler {
 
         this.previous = current;
 
-        const { stats, signals, framesDecoded } = summarize(current, previous, hints);
+        const { stats, signals, framesDecoded } = summarize(current, previous, hints, this.videoStarted);
 
         if (hints.videoPaused) {
             this.videoStarted = false;
@@ -198,6 +215,10 @@ export default class LivestreamStatsSampler {
         }
 
         signals.videoJudged = signals.videoJudged && this.videoStarted;
+
+        if (stats.inbound.video) {
+            stats.inbound.video.started = this.videoStarted;
+        }
 
         if (previous && ++this.intervals > WARM_UP_INTERVALS) {
             const expectedFps = this.expectedFps(signals);
@@ -233,10 +254,15 @@ export default class LivestreamStatsSampler {
     }
 }
 
+/**
+ * `videoStarted`: there was a picture as the interval began. A stop that ends without one, as
+ * video resumes after a pause on purpose, is not the picture standing still.
+ */
 function summarize(
     current: Snapshot,
     previous: Snapshot | null,
-    hints: LivestreamStatsHints
+    hints: LivestreamStatsHints,
+    videoStarted: boolean
 ): { stats: Omit<LivestreamStats, 'quality' | 'qualityLimitation'>, signals: Signals, framesDecoded: number } {
     const seconds = previous ? Math.max((current.time - previous.time) / 1000, 0.001) : 0;
     const entries = [ ...current.byId.values() ];
@@ -307,6 +333,10 @@ function summarize(
 
         decodedInInterval = previous ? decoded : inboundVideo.framesDecoded ?? 0;
         droppedPercent = received > 0 ? Math.max(0, (100 * delta(inboundVideo, 'framesDropped')) / received) : 0;
+
+        // A first sample's totals are the whole connection's, all of it before there was a picture.
+        const stopsCount = videoStarted && previous !== null;
+
         video = {
             codec: codec(inboundVideo),
             width: inboundVideo.frameWidth ?? 0,
@@ -316,8 +346,18 @@ function summarize(
             lossPercent: lossPercent(inboundVideo),
             jitterBufferMs: bufferMs(inboundVideo),
             frozenPercent,
+            droppedPercent,
+            // Set by the sampler, which follows the picture from one interval to the next.
+            started: false,
+            freezesEnded: stopsCount ? Math.max(0, delta(inboundVideo, 'freezeCount')) : 0,
+            pausesEnded: stopsCount ? Math.max(0, delta(inboundVideo, 'pauseCount')) : 0,
+            stoppedSeconds: stopsCount
+                ? Math.max(0, frozenSeconds + delta(inboundVideo, 'totalPausesDuration'))
+                : 0,
             freezeCount: inboundVideo.freezeCount ?? 0,
             freezeSeconds: inboundVideo.totalFreezesDuration ?? 0,
+            pauseCount: inboundVideo.pauseCount ?? 0,
+            pauseSeconds: inboundVideo.totalPausesDuration ?? 0,
             framesDropped: inboundVideo.framesDropped ?? 0,
             nackCount: inboundVideo.nackCount ?? 0,
             pliCount: inboundVideo.pliCount ?? 0

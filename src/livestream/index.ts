@@ -23,6 +23,13 @@ export {
     type OutboundVideoStats
 } from './LivestreamStats';
 export {
+    default as LivestreamWatchReport,
+    type LivestreamPercentiles,
+    type LivestreamWatchAudioSummary,
+    type LivestreamWatchSummary,
+    type LivestreamWatchVideoSummary
+} from './LivestreamWatchReport';
+export {
     default as LivestreamViewer,
     LIVESTREAM_VIEWER_CONFIGURATION,
     type LivestreamViewerOptions
