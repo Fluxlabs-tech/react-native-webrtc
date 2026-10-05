@@ -83,6 +83,11 @@
 
     CGRect bounds = self.bounds;
     self.videoView.frame = bounds;
+
+    // Without a preferred size the window follows the screen, which turns as the app rotates.
+    if (@available(iOS 15.0, *)) {
+        _pipController.preferredSize = [self pictureInPictureSize];
+    }
 }
 
 /**
@@ -154,13 +159,19 @@
         _pipController.delegate = self;
     }
 
-    if (!CGSizeEqualToSize(_pictureInPicturePreferredSize, CGSizeZero)) {
-        _pipController.preferredSize = _pictureInPicturePreferredSize;
-    }
-
+    _pipController.preferredSize = [self pictureInPictureSize];
     _pipController.startAutomatically = _autoStartPictureInPicture;
     _pipController.stopAutomatically = _autoStopPictureInPicture;
     _pipController.objectFit = _objectFit;
+}
+
+/** The window's shape: the preferred size, or without one the screen's, as the app holds it. */
+- (CGSize)pictureInPictureSize {
+    if (!CGSizeEqualToSize(_pictureInPicturePreferredSize, CGSizeZero)) {
+        return _pictureInPicturePreferredSize;
+    }
+    UIScreen *screen = self.window.windowScene.screen ?: UIScreen.mainScreen;
+    return screen.bounds.size;
 }
 
 - (void)API_AVAILABLE(ios(15.0))startPIPWithParams:(BOOL)shouldApplyParams {

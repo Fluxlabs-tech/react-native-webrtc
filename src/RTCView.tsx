@@ -80,7 +80,9 @@ interface RTCVideoViewBaseProps extends ViewProps {
    */
   autoStartPictureInPicture?: boolean;
   /**
-   * The preferred size of the PIP window.
+   * The preferred size of the PIP window: its shape, which the system scales.
+   *
+   * Defaults to the screen's shape on iOS, and the video's on Android.
    */
   pictureInPicturePreferredSize?: {
     width: number;
