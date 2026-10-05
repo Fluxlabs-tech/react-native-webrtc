@@ -28,7 +28,8 @@ export interface RTCIOSPIPOptions {
   enabled?: boolean;
 
   /**
-   * The preferred size of the PIP window.
+   * The preferred size of the PIP window: its shape, which the system scales.
+   * Defaults to the screen's shape.
    */
   preferredSize?: {
     width: number;

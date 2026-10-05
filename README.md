@@ -37,6 +37,7 @@ import { RTCView, isInPictureInPicture, isPictureInPictureSupported } from 'reac
 - `isPictureInPictureSupported()` resolves `false` when the device lacks PiP or the user turned it off for the app.
 - `isInPictureInPicture()` answers synchronously. On Android, AppState reports `background` as soon as the activity pauses into PiP, sometimes before `onPictureInPictureChange` arrives.
 - One view manages PiP at a time: the most recently enabled one. Automatic entry waits for a video track.
+- On iOS the window takes the screen's shape, unless `pictureInPicturePreferredSize` gives one (only its shape counts: the system picks the size).
 
 Android needs `android:supportsPictureInPicture="true"` on the activity, `configChanges` that include `screenSize|smallestScreenSize|screenLayout`, and compileSdk 36 (androidx.activity 1.13). While in PiP the activity is paused, and React Native does not run JS timers for a paused activity. iOS needs iOS 15 and the `audio` background mode. The Expo config plugin's `pictureInPicture` option sets both up.
 
