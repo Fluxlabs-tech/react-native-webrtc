@@ -16,4 +16,7 @@
 
 + (RTCCertificate *)getCertificate:(NSString *)certId;
 
+// Closes and disposes every peer connection, as JS does one at a time. Call on the worker queue.
+- (void)closeAllPeerConnections;
+
 @end

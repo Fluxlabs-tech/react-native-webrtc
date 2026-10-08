@@ -69,6 +69,11 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
 
     private final GetUserMediaImpl getUserMediaImpl;
 
+    // React frees the C++ half of this module right after invalidate(), and the codegen emitters
+    // call into it: an event sent after that is a use-after-free, a SIGSEGV in libreactnative.so.
+    private final Object mEventLock = new Object();
+    private boolean mInvalidated;
+
     public WebRTCModule(ReactApplicationContext reactContext) {
         super(reactContext);
 
@@ -148,6 +153,14 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
     }
 
     void sendEvent(String eventName, @Nullable ReadableMap params) {
+        synchronized (mEventLock) {
+            if (!mInvalidated) {
+                emitEvent(eventName, params);
+            }
+        }
+    }
+
+    private void emitEvent(String eventName, @Nullable ReadableMap params) {
         // Through the emitters codegen generates for the events src/NativeWebRTCModule.ts declares.
         switch (eventName) {
             case "peerConnectionSignalingStateChanged":
@@ -1003,7 +1016,20 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
 
     @Override
     public void invalidate() {
+        synchronized (mEventLock) {
+            mInvalidated = true;
+        }
         livestreamNetworkStop();
+        // The JS that would close these is gone. Left open, they would go on receiving the stream,
+        // and firing events, for as long as the process lives.
+        ThreadUtils.runOnExecutor(() -> {
+            for (int i = 0, size = mPeerConnectionObservers.size(); i < size; i++) {
+                PeerConnectionObserver pco = mPeerConnectionObservers.valueAt(i);
+                pco.close();
+                pco.dispose();
+            }
+            mPeerConnectionObservers.clear();
+        });
         super.invalidate();
     }
 

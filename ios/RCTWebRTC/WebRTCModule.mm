@@ -9,6 +9,7 @@
 
 #import <objc/runtime.h>
 
+#import <React/RCTInvalidating.h>
 #import <React/RCTLog.h>
 #import <React/RCTUtils.h>
 #import <RNWebRTCSpec/RNWebRTCSpec.h>
@@ -17,11 +18,12 @@
 #import "WebRTCModule.h"
 #import "WebRTCModuleOptions.h"
 #import "livestream/LivestreamAudio.h"
+#import "livestream/LivestreamNetworkMonitor.h"
 
 // The class adopts RCTTurboModule rather than the NativeWebRTCModuleSpec protocol: the exported
 // methods live in the categories, in their own files, where the compiler cannot match them
 // against the spec. WebRTCModuleCheckSpec() does that instead, in debug builds.
-@interface WebRTCModule ()<RCTTurboModule>
+@interface WebRTCModule ()<RCTTurboModule, RCTInvalidating>
 @end
 
 // Weak: a reload replaces the module, and the old one must still deallocate.
@@ -59,6 +61,9 @@ static NSSet<NSString *> *WebRTCModuleEvents(void) {
     // NativeWebRTCModuleSpecBase holds the same, but subclassing it would make every file that
     // imports WebRTCModule.h Objective-C++.
     facebook::react::EventEmitterCallback _eventEmitterCallback;
+    // The callback calls into the C++ TurboModule, which React frees once invalidate has run: an
+    // event sent after that is a use-after-free. Guarded by @synchronized(self).
+    BOOL _invalidated;
 }
 
 + (WebRTCModule *)currentModule {
@@ -247,9 +252,22 @@ static void WebRTCModuleCheckSpec(Class moduleClass) {
         RCTLogError(@"WebRTCModule: %@ is not an event of the spec", eventName);
         return;
     }
-    if (_eventEmitterCallback) {
-        _eventEmitterCallback(std::string(eventName.UTF8String), body);
+    @synchronized(self) {
+        if (_eventEmitterCallback && !_invalidated) {
+            _eventEmitterCallback(std::string(eventName.UTF8String), body);
+        }
     }
+}
+
+// On the worker queue, the module's method queue.
+- (void)invalidate {
+    @synchronized(self) {
+        _invalidated = YES;
+    }
+    [self.livestreamNetworkMonitor stop];
+    // The JS that would close these is gone. Left open, they would go on receiving the stream,
+    // and firing events, until the module deallocates.
+    [self closeAllPeerConnections];
 }
 
 @end
