@@ -1021,14 +1021,12 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
         }
         livestreamNetworkStop();
         // The JS that would close these is gone. Left open, they would go on receiving the stream,
-        // and firing events, for as long as the process lives.
+        // and firing events, for as long as the process lives. Closed but not disposed: SDP and ICE
+        // callbacks still in flight post executor work that reads them, and disposing frees them.
         ThreadUtils.runOnExecutor(() -> {
             for (int i = 0, size = mPeerConnectionObservers.size(); i < size; i++) {
-                PeerConnectionObserver pco = mPeerConnectionObservers.valueAt(i);
-                pco.close();
-                pco.dispose();
+                mPeerConnectionObservers.valueAt(i).close();
             }
-            mPeerConnectionObservers.clear();
         });
         super.invalidate();
     }
