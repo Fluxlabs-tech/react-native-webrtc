@@ -268,6 +268,17 @@ class GetUserMediaImpl {
         }
     }
 
+    /**
+     * Disposes every track, as JS releasing each one would: capture stops, the screen capture's
+     * foreground service included.
+     */
+    void disposeAllTracks() {
+        for (TrackPrivate track : tracks.values()) {
+            track.dispose();
+        }
+        tracks.clear();
+    }
+
     void applyConstraints(String trackId, ReadableMap constraints, Promise promise) {
         TrackPrivate track = tracks.get(trackId);
         if (track != null && track.videoCaptureController instanceof AbstractVideoCaptureController) {
@@ -371,6 +382,16 @@ class GetUserMediaImpl {
         // runs the first has already consumed displayMediaPromise. Bail out instead of dereferencing
         // a null promise or creating a second screen stream.
         if (displayMediaPromise == null) {
+            return;
+        }
+
+        // The module was invalidated while the foreground service started: nothing would ever stop
+        // this capture, nor the service.
+        if (webRTCModule.isInvalidated()) {
+            MediaProjectionService.abort(reactContext);
+            displayMediaPromise.reject("DOMException", "AbortError");
+            displayMediaPromise = null;
+            mediaProjectionPermissionResultData = null;
             return;
         }
 

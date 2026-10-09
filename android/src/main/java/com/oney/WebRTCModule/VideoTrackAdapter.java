@@ -26,6 +26,9 @@ public class VideoTrackAdapter {
 
     private Timer timer = new Timer("VideoTrackMutedTimer");
 
+    // Set by dispose(). On the executor, like the adapters are added and removed.
+    private boolean disposed;
+
     private final int peerConnectionId;
 
     private final WebRTCModule webRTCModule;
@@ -36,6 +39,11 @@ public class VideoTrackAdapter {
     }
 
     public void addAdapter(VideoTrack videoTrack) {
+        // The timer is cancelled, and scheduling on it would throw.
+        if (disposed) {
+            return;
+        }
+
         String trackId = videoTrack.id();
         if (muteImplMap.containsKey(trackId)) {
             Log.w(TAG, "Attempted to add adapter twice for track ID: " + trackId);
@@ -60,6 +68,15 @@ public class VideoTrackAdapter {
         videoTrack.removeSink(onMuteImpl);
         onMuteImpl.dispose();
         Log.d(TAG, "Deleted adapter for " + trackId);
+    }
+
+    /**
+     * Cancels the timer, which ends its thread. Remove each track's adapter first; addAdapter()
+     * does nothing after this.
+     */
+    public void dispose() {
+        disposed = true;
+        timer.cancel();
     }
 
     /**
