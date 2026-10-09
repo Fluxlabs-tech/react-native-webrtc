@@ -369,6 +369,18 @@ int _transceiverNextId = 0;
     [self.peerConnections removeObjectForKey:objectID];
 }
 
+- (void)closeAllPeerConnections {
+    for (NSNumber *objectID in self.peerConnections.allKeys) {
+        [self peerConnectionClose:objectID.integerValue];
+    }
+}
+
+- (void)disposeAllPeerConnections {
+    for (NSNumber *objectID in self.peerConnections.allKeys) {
+        [self peerConnectionDispose:objectID.integerValue];
+    }
+}
+
 - (void)peerConnectionGetStats:(NSInteger)pcId
                        resolve:(RCTPromiseResolveBlock)resolve
                         reject:(RCTPromiseRejectBlock)reject {

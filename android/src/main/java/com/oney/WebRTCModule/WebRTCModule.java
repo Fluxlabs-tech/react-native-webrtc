@@ -69,6 +69,13 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
 
     private final GetUserMediaImpl getUserMediaImpl;
 
+    // React frees the C++ half of this module right after invalidate(), and the codegen emitters
+    // call into it: an event sent after that is a use-after-free, a SIGSEGV in libreactnative.so.
+    // Set under the lock sendEvent() takes. Also read without it, by the calls that would start
+    // what invalidate() has already stopped.
+    private final Object mEventLock = new Object();
+    private volatile boolean mInvalidated;
+
     public WebRTCModule(ReactApplicationContext reactContext) {
         super(reactContext);
 
@@ -148,6 +155,18 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
     }
 
     void sendEvent(String eventName, @Nullable ReadableMap params) {
+        synchronized (mEventLock) {
+            if (!mInvalidated) {
+                emitEvent(eventName, params);
+            }
+        }
+    }
+
+    boolean isInvalidated() {
+        return mInvalidated;
+    }
+
+    private void emitEvent(String eventName, @Nullable ReadableMap params) {
         // Through the emitters codegen generates for the events src/NativeWebRTCModule.ts declares.
         switch (eventName) {
             case "peerConnectionSignalingStateChanged":
@@ -196,7 +215,7 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
                 emitLivestreamNetworkChanged(params);
                 break;
             default:
-                Log.e(TAG, "sendEvent(): " + eventName + " is not an event of the spec");
+                Log.e(TAG, "emitEvent(): " + eventName + " is not an event of the spec");
         }
     }
 
@@ -467,6 +486,11 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
         try {
             return (boolean) ThreadUtils
                     .submitToExecutor(() -> {
+                        // invalidate() closes the others, and nothing would close this one.
+                        if (mInvalidated) {
+                            return false;
+                        }
+
                         PeerConnectionObserver observer = new PeerConnectionObserver(this, id);
                         PeerConnection peerConnection = mFactory.createPeerConnection(rtcConfiguration, observer);
                         if (peerConnection == null) {
@@ -856,12 +880,26 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
 
     @Override
     public void getDisplayMedia(ReadableMap constraints, Promise promise) {
-        ThreadUtils.runOnExecutor(() -> getUserMediaImpl.getDisplayMedia(constraints, promise));
+        ThreadUtils.runOnExecutor(() -> {
+            // invalidate() disposes of the other tracks, and nothing would stop this capture.
+            if (mInvalidated) {
+                promise.reject("DOMException", "AbortError");
+                return;
+            }
+            getUserMediaImpl.getDisplayMedia(constraints, promise);
+        });
     }
 
     @Override
     public void getUserMedia(ReadableMap constraints, Callback successCallback, Callback errorCallback) {
-        ThreadUtils.runOnExecutor(() -> getUserMediaImpl.getUserMedia(constraints, successCallback, errorCallback));
+        ThreadUtils.runOnExecutor(() -> {
+            // As in getDisplayMedia().
+            if (mInvalidated) {
+                errorCallback.invoke("DOMException", "AbortError");
+                return;
+            }
+            getUserMediaImpl.getUserMedia(constraints, successCallback, errorCallback);
+        });
     }
 
     @Override
@@ -983,7 +1021,14 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
             }
             monitor = mNetworkMonitor;
         }
-        monitor.start();
+        // invalidate() sets mInvalidated, then stops the monitor under this lock: a start that loses
+        // that race must not register the callback again, as nothing would unregister it.
+        synchronized (monitor) {
+            if (mInvalidated) {
+                return;
+            }
+            monitor.start();
+        }
     }
 
     @Override
@@ -1003,7 +1048,37 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
 
     @Override
     public void invalidate() {
+        synchronized (mEventLock) {
+            mInvalidated = true;
+        }
         livestreamNetworkStop();
+        // The JS that would release all this is gone. Left alone, the capturers would go on
+        // capturing, and the peer connections receiving the stream, for as long as the process lives.
+        ThreadUtils.runOnExecutor(() -> {
+            // Not disposed: a stream disposes of its tracks, and disposeAllTracks() does that.
+            localStreams.clear();
+            getUserMediaImpl.disposeAllTracks();
+
+            List<PeerConnectionObserver> observers = new ArrayList<>();
+            for (int i = 0, size = mPeerConnectionObservers.size(); i < size; i++) {
+                observers.add(mPeerConnectionObservers.valueAt(i));
+            }
+            // Off the executor: close() blocks while it tears a connection down, and the module React
+            // builds next queues its calls on the same executor.
+            new Thread(() -> {
+                for (PeerConnectionObserver observer : observers) {
+                    observer.close();
+                }
+                // Behind the executor work the closes queued, as JS disposes of a connection once it
+                // has closed. Released but not disposed: SDP and ICE callbacks still in flight post
+                // executor work that reads them, and disposing frees them.
+                ThreadUtils.runOnExecutor(() -> {
+                    for (PeerConnectionObserver observer : observers) {
+                        observer.release();
+                    }
+                });
+            }, "WebRTCModule invalidate").start();
+        });
         super.invalidate();
     }
 
@@ -1515,9 +1590,15 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
     public void peerConnectionDispose(double idDouble) {
         int id = (int) idDouble;
         ThreadUtils.runOnExecutor(() -> {
+            // invalidate() closes the connections on a thread of its own: disposing one here could
+            // free it under that close.
+            if (mInvalidated) {
+                return;
+            }
             PeerConnectionObserver pco = mPeerConnectionObservers.get(id);
             if (pco == null || pco.getPeerConnection() == null) {
                 Log.d(TAG, "peerConnectionDispose() peerConnection is null");
+                return;
             }
             pco.dispose();
             mPeerConnectionObservers.remove(id);
