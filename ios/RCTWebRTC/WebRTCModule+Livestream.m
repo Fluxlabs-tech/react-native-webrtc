@@ -1,3 +1,4 @@
+#import "WebRTCModule+Livestream.h"
 #import "WebRTCModule.h"
 #import "livestream/LivestreamAudio.h"
 #import "livestream/LivestreamNetworkMonitor.h"

@@ -372,6 +372,11 @@ int _transceiverNextId = 0;
 - (void)closeAllPeerConnections {
     for (NSNumber *objectID in self.peerConnections.allKeys) {
         [self peerConnectionClose:objectID.integerValue];
+    }
+}
+
+- (void)disposeAllPeerConnections {
+    for (NSNumber *objectID in self.peerConnections.allKeys) {
         [self peerConnectionDispose:objectID.integerValue];
     }
 }
