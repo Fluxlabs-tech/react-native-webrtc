@@ -238,7 +238,7 @@ This fork runs on the New Architecture only, React Native 0.76 or later: `WebRTC
 
 - The JS API is the same, except `ScreenCapturePickerView`: it is a component with a `show()` method. Replace `NativeModules.ScreenCapturePickerViewManager.show(findNodeHandle(ref.current))` with `ref.current?.show()`.
 - A new native method goes in `src/NativeWebRTCModule.ts`, then on both platforms with the signature codegen generates. On iOS, debug builds log any spec method the module lacks or declares with other types.
-- A new event goes in the spec too, then in `WebRTCModule.h` and `WebRTCModuleEvents()` on iOS and in `WebRTCModule.sendEvent()` on Android.
+- A new event goes in the spec too, then in `WebRTCModule.h` and `WebRTCModuleEvents()` on iOS and in `WebRTCModule.emitEvent()` on Android.
 
 ### Performance
 

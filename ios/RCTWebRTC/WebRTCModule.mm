@@ -14,17 +14,39 @@
 #import <React/RCTUtils.h>
 #import <RNWebRTCSpec/RNWebRTCSpec.h>
 
+#import "WebRTCModule+Livestream.h"
 #import "WebRTCModule+RTCPeerConnection.h"
 #import "WebRTCModule.h"
 #import "WebRTCModuleOptions.h"
 #import "livestream/LivestreamAudio.h"
-#import "livestream/LivestreamNetworkMonitor.h"
 
 // The class adopts RCTTurboModule rather than the NativeWebRTCModuleSpec protocol: the exported
 // methods live in the categories, in their own files, where the compiler cannot match them
 // against the spec. WebRTCModuleCheckSpec() does that instead, in debug builds.
 @interface WebRTCModule ()<RCTTurboModule, RCTInvalidating>
+
+// For WebRTCModuleSpecJSI below, which the event emitter callback calls into.
+- (void)setEventEmitterCallbackOwner:(const void *)owner;
+- (void)clearEventEmitterCallbackOwnedBy:(const void *)owner;
+
 @end
+
+namespace {
+
+// The TurboModule. React frees it once it has invalidated the module, but waits only 10 s for
+// -invalidate to have its turn on the worker queue: so when it goes, the callback into it goes too.
+class WebRTCModuleSpecJSI final : public facebook::react::NativeWebRTCModuleSpecJSI {
+   public:
+    explicit WebRTCModuleSpecJSI(const facebook::react::ObjCTurboModule::InitParams &params)
+        : NativeWebRTCModuleSpecJSI(params) {
+        // NativeWebRTCModuleSpecJSI has just set the callback.
+        [(WebRTCModule *)instance_ setEventEmitterCallbackOwner:this];
+    }
+
+    ~WebRTCModuleSpecJSI() override { [(WebRTCModule *)instance_ clearEventEmitterCallbackOwnedBy:this]; }
+};
+
+}  // namespace
 
 // Weak: a reload replaces the module, and the old one must still deallocate.
 static __weak WebRTCModule *gCurrentModule;
@@ -60,10 +82,12 @@ static NSSet<NSString *> *WebRTCModuleEvents(void) {
     // Set by the TurboModule when JS first loads it; emits the spec's events to JS. Codegen's
     // NativeWebRTCModuleSpecBase holds the same, but subclassing it would make every file that
     // imports WebRTCModule.h Objective-C++.
+    // It calls into the TurboModule, which React frees after it has invalidated the module: an
+    // event sent after that is a use-after-free. So -invalidate clears it, and so does the
+    // TurboModule as it goes, should -invalidate not have run by then. Guarded by
+    // @synchronized(self), as is the TurboModule it calls into, _eventEmitterCallbackOwner.
     facebook::react::EventEmitterCallback _eventEmitterCallback;
-    // The callback calls into the C++ TurboModule, which React frees once invalidate has run: an
-    // event sent after that is a use-after-free. Guarded by @synchronized(self).
-    BOOL _invalidated;
+    const void *_eventEmitterCallbackOwner;
 }
 
 + (WebRTCModule *)currentModule {
@@ -80,12 +104,9 @@ static NSSet<NSString *> *WebRTCModuleEvents(void) {
     [_localStreams removeAllObjects];
     _localStreams = nil;
 
-    for (NSNumber *peerConnectionId in _peerConnections) {
-        RTCPeerConnection *peerConnection = _peerConnections[peerConnectionId];
-        peerConnection.delegate = nil;
-        [peerConnection close];
-    }
-    [_peerConnections removeAllObjects];
+    // Done already, unless the module goes without -invalidate.
+    [self closeAllPeerConnections];
+    [self disposeAllPeerConnections];
 
     _peerConnectionFactory = nil;
 }
@@ -240,11 +261,31 @@ static void WebRTCModuleCheckSpec(Class moduleClass) {
         WebRTCModuleCheckSpec([WebRTCModule class]);
     });
 #endif
-    return std::make_shared<facebook::react::NativeWebRTCModuleSpecJSI>(params);
+    return std::make_shared<WebRTCModuleSpecJSI>(params);
 }
 
 - (void)setEventEmitterCallback:(EventEmitterCallbackWrapper *)eventEmitterCallbackWrapper {
-    _eventEmitterCallback = std::move(eventEmitterCallbackWrapper->_eventEmitterCallback);
+    @synchronized(self) {
+        _eventEmitterCallback = std::move(eventEmitterCallbackWrapper->_eventEmitterCallback);
+        _eventEmitterCallbackOwner = nullptr;
+    }
+}
+
+- (void)setEventEmitterCallbackOwner:(const void *)owner {
+    @synchronized(self) {
+        _eventEmitterCallbackOwner = owner;
+    }
+}
+
+// Only the callback into the TurboModule that goes: a module instance an app keeps across a
+// reload may have the next one's by then.
+- (void)clearEventEmitterCallbackOwnedBy:(const void *)owner {
+    @synchronized(self) {
+        if (_eventEmitterCallbackOwner == owner) {
+            _eventEmitterCallback = nullptr;
+            _eventEmitterCallbackOwner = nullptr;
+        }
+    }
 }
 
 - (void)sendEventWithName:(NSString *)eventName body:(id)body {
@@ -253,7 +294,7 @@ static void WebRTCModuleCheckSpec(Class moduleClass) {
         return;
     }
     @synchronized(self) {
-        if (_eventEmitterCallback && !_invalidated) {
+        if (_eventEmitterCallback) {
             _eventEmitterCallback(std::string(eventName.UTF8String), body);
         }
     }
@@ -262,12 +303,16 @@ static void WebRTCModuleCheckSpec(Class moduleClass) {
 // On the worker queue, the module's method queue.
 - (void)invalidate {
     @synchronized(self) {
-        _invalidated = YES;
+        _eventEmitterCallback = nullptr;
+        _eventEmitterCallbackOwner = nullptr;
     }
-    [self.livestreamNetworkMonitor stop];
-    // The JS that would close these is gone. Left open, they would go on receiving the stream,
-    // and firing events, until the module deallocates.
+    [self livestreamNetworkStop];
+    // The JS that would close these is gone. Left open, they would go on receiving the stream
+    // until the module deallocates.
     [self closeAllPeerConnections];
+    dispatch_async(_workerQueue, ^{
+        [self disposeAllPeerConnections];
+    });
 }
 
 @end

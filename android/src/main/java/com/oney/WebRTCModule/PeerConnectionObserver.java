@@ -71,18 +71,7 @@ class PeerConnectionObserver implements PeerConnection.Observer {
     void dispose() {
         Log.d(TAG, "PeerConnection.dispose() for " + id);
 
-        // Remove video track adapters
-        for (MediaStreamTrack track : this.remoteTracks.values()) {
-            if (track instanceof VideoTrack) {
-                videoTrackAdapters.removeAdapter((VideoTrack) track);
-            }
-        }
-
-        // Remove DataChannel observers
-        for (DataChannelWrapper dcw : dataChannels.values()) {
-            DataChannel dataChannel = dcw.getDataChannel();
-            dataChannel.unregisterObserver();
-        }
+        release();
 
         // At this point there should be no local MediaStreams in the associated
         // PeerConnection. Call dispose() to free all remaining resources held
@@ -92,6 +81,27 @@ class PeerConnectionObserver implements PeerConnection.Observer {
         remoteStreamIds.clear();
         remoteStreams.clear();
         remoteTracks.clear();
+    }
+
+    /**
+     * Frees what dispose() does, short of the PeerConnection: the mute timer and the data channel
+     * observers. WebRTCModule.invalidate() stops there, as executor work still in flight may read
+     * the PeerConnection, which a closed one allows and a disposed one does not.
+     */
+    void release() {
+        // Remove video track adapters
+        for (MediaStreamTrack track : this.remoteTracks.values()) {
+            if (track instanceof VideoTrack) {
+                videoTrackAdapters.removeAdapter((VideoTrack) track);
+            }
+        }
+        videoTrackAdapters.dispose();
+
+        // Remove DataChannel observers
+        for (DataChannelWrapper dcw : dataChannels.values()) {
+            DataChannel dataChannel = dcw.getDataChannel();
+            dataChannel.unregisterObserver();
+        }
         dataChannels.clear();
     }
 

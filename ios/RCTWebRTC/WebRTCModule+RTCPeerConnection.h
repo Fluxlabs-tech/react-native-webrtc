@@ -16,7 +16,11 @@
 
 + (RTCCertificate *)getCertificate:(NSString *)certId;
 
-// Closes and disposes every peer connection, as JS does one at a time. Call on the worker queue.
+// Close, and dispose of, every peer connection, as JS does one at a time. On the worker queue, with
+// the dispose in a block of its own, behind the delegate blocks the closes queued: one run after the
+// dispose would add back what it removes, such as a track's mute timer. -dealloc, which has no
+// blocks to wait for, calls both in a row.
 - (void)closeAllPeerConnections;
+- (void)disposeAllPeerConnections;
 
 @end
