@@ -67,7 +67,9 @@ func safeDeviceName(s string) string {
 func (h *appHub) appendLog(device string, rec []byte) {
 	h.fmu.Lock()
 	defer h.fmu.Unlock()
-	f, err := os.OpenFile(filepath.Join(h.logsDir, "app-"+safeDeviceName(device)+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// A file name, never a path: safeDeviceName leaves no separator, and Base says so here.
+	name := filepath.Base("app-" + safeDeviceName(device) + ".jsonl")
+	f, err := os.OpenFile(filepath.Join(h.logsDir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		log.Printf("[app %s] log file: %v", device, err)
 		return
