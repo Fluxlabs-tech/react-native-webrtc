@@ -67,7 +67,13 @@ func safeDeviceName(s string) string {
 func (h *appHub) appendLog(device string, rec []byte) {
 	h.fmu.Lock()
 	defer h.fmu.Unlock()
-	f, err := os.OpenFile(filepath.Join(h.logsDir, "app-"+safeDeviceName(device)+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	name := "app-" + safeDeviceName(device) + ".jsonl"
+	// safeDeviceName leaves no separator, so this always holds; checked where the path is built.
+	if !filepath.IsLocal(name) {
+		log.Printf("[app %s] log file: %q is not a local name", device, name)
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(h.logsDir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		log.Printf("[app %s] log file: %v", device, err)
 		return
