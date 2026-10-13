@@ -48,6 +48,9 @@ using namespace facebook::react;
     _videoView.onPictureInPictureChange = ^(NSDictionary *body) {
         [weakSelf emitPictureInPictureChange:body];
     };
+    _videoView.onPictureInPicturePlayingChange = ^(NSDictionary *body) {
+        [weakSelf emitPictureInPicturePlayingChange:body];
+    };
 
     self.contentView = _videoView;
 }
@@ -64,6 +67,12 @@ using namespace facebook::react;
         // Unset is cover, RTCView's default; anything but cover is contain, as on the old architecture.
         BOOL cover = newViewProps.objectFit.empty() || newViewProps.objectFit == "cover";
         _videoView.objectFit = cover ? RTCVideoViewObjectFitCover : RTCVideoViewObjectFitContain;
+    }
+
+    // Before pictureInPictureEnabled, which makes the controller for the kind.
+    if (oldViewProps.pictureInPictureKind != newViewProps.pictureInPictureKind) {
+        BOOL videoCall = newViewProps.pictureInPictureKind == RTCVideoViewPictureInPictureKind::VideoCall;
+        _videoView.pictureInPictureKind = videoCall ? PIPControllerKindVideoCall : PIPControllerKindPlayback;
     }
 
     if (oldViewProps.pictureInPictureEnabled != newViewProps.pictureInPictureEnabled) {
@@ -93,7 +102,8 @@ using namespace facebook::react;
     [super updateProps:props oldProps:oldProps];
 }
 
-// Children are the fallback views picture-in-picture shows (RTCPIPView's iosPIP.fallbackView).
+// Children are the fallback views the video call's picture-in-picture window shows (RTCPIPView's
+// iosPIP.fallbackView).
 - (void)mountChildComponentView:(UIView<RCTComponentViewProtocol> *)childComponentView index:(NSInteger)index {
     [_videoView insertFallbackView:childComponentView];
 }
@@ -119,10 +129,19 @@ using namespace facebook::react;
         return;
     }
 
-    // iOS reports no dismissal; see RTCView's onPictureInPictureChange.
     std::static_pointer_cast<const RTCVideoViewEventEmitter>(_eventEmitter)
-        ->onPictureInPictureChange(
-            RTCVideoViewEventEmitter::OnPictureInPictureChange{[body[@"isInPictureInPicture"] boolValue], false});
+        ->onPictureInPictureChange(RTCVideoViewEventEmitter::OnPictureInPictureChange{
+            [body[@"isInPictureInPicture"] boolValue], [body[@"dismissed"] boolValue]});
+}
+
+- (void)emitPictureInPicturePlayingChange:(NSDictionary *)body {
+    if (!_eventEmitter) {
+        return;
+    }
+
+    std::static_pointer_cast<const RTCVideoViewEventEmitter>(_eventEmitter)
+        ->onPictureInPicturePlayingChange(
+            RTCVideoViewEventEmitter::OnPictureInPicturePlayingChange{[body[@"playing"] boolValue]});
 }
 
 #pragma mark - Commands

@@ -26,8 +26,10 @@ export interface NativeProps extends ViewProps {
     autoStartPictureInPicture?: WithDefault<boolean, true>;
     autoStopPictureInPicture?: WithDefault<boolean, true>;
     pictureInPicturePreferredSize?: PictureInPictureSize;
+    pictureInPictureKind?: WithDefault<'playback' | 'videoCall', 'playback'>;
     onDimensionsChange?: DirectEventHandler<Readonly<{ width: Int32; height: Int32 }>>;
     onPictureInPictureChange?: DirectEventHandler<Readonly<{ isInPictureInPicture: boolean; dismissed: boolean }>>;
+    onPictureInPicturePlayingChange?: DirectEventHandler<Readonly<{ playing: boolean }>>;
 }
 
 // Codegen wants React.ElementRef spelled out in each command, not behind an alias.

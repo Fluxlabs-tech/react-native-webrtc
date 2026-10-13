@@ -16,6 +16,11 @@
 #import "TrackCapturerEventsEmitter.h"
 #import "VideoCaptureController.h"
 
+/** A held remote audio track's key. Track IDs come from the remote side, so two peer connections can share one. */
+static NSString *HeldAudioKey(NSNumber *pcId, NSString *trackId) {
+    return [NSString stringWithFormat:@"%@/%@", pcId, trackId];
+}
+
 @implementation WebRTCModule (RTCMediaStream)
 
 - (VideoEffectProcessor *)videoEffectProcessor {
@@ -451,6 +456,15 @@
         return;
     }
 
+    NSMutableDictionary<NSString *, NSNumber *> *heldAudio = [self heldRemoteAudio];
+    NSString *heldKey = HeldAudioKey(pcId, trackID);
+    if (heldAudio[heldKey]) {
+        // A paused picture-in-picture window holds the track silent: it takes this state when the
+        // window plays.
+        heldAudio[heldKey] = @(enabled);
+        return;
+    }
+
     track.isEnabled = enabled;
 #if !TARGET_OS_TV
     if (track.captureController) {  // It could be a remote track!
@@ -530,6 +544,36 @@
     RTCVideoCapturer *capturer = vcc.capturer;
 
     capturer.delegate = self.videoEffectProcessor;
+}
+
+#pragma mark - Picture-in-picture
+
+/** Remote audio tracks held silent, keyed by HeldAudioKey: whether each is enabled when the hold ends. */
+- (NSMutableDictionary<NSString *, NSNumber *> *)heldRemoteAudio {
+    NSMutableDictionary *heldAudio = objc_getAssociatedObject(self, _cmd);
+    if (!heldAudio) {
+        heldAudio = [NSMutableDictionary new];
+        objc_setAssociatedObject(self, _cmd, heldAudio, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return heldAudio;
+}
+
+- (void)setRemoteAudioOfStream:(NSString *)streamReactTag held:(BOOL)held {
+    NSMutableDictionary<NSString *, NSNumber *> *heldAudio = [self heldRemoteAudio];
+    for (NSNumber *pcId in self.peerConnections) {
+        RTCMediaStream *stream = self.peerConnections[pcId].remoteStreams[streamReactTag];
+        for (RTCAudioTrack *track in stream.audioTracks) {
+            NSString *key = HeldAudioKey(pcId, track.trackId);
+            NSNumber *enabledAfterHold = heldAudio[key];
+            if (held && !enabledAfterHold) {
+                heldAudio[key] = @(track.isEnabled);
+                track.isEnabled = NO;
+            } else if (!held && enabledAfterHold) {
+                [heldAudio removeObjectForKey:key];
+                track.isEnabled = enabledAfterHold.boolValue;
+            }
+        }
+    }
 }
 
 #pragma mark - Helpers

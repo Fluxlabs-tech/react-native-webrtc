@@ -127,6 +127,12 @@ public class RTCVideoViewManager
         view.setPictureInPicturePreferredSize(size);
     }
 
+    /**
+     * iOS only: Android has one kind of picture-in-picture window.
+     */
+    @Override
+    public void setPictureInPictureKind(WebRTCView view, @Nullable String kind) {}
+
     @Override
     public void startPictureInPicture(WebRTCView view) {
         view.enterPictureInPicture();
