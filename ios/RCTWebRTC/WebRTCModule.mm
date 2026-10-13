@@ -194,8 +194,8 @@ RCT_EXPORT_MODULE();
     return _workerQueue;
 }
 
-// Picture-in-picture here is the video-call kind, AVPictureInPictureVideoCallViewController,
-// which needs iOS 15.
+// Picture-in-picture needs iOS 15, for either window: the system player's, from a sample buffer
+// display layer, or the video call's, AVPictureInPictureVideoCallViewController.
 // For the moment the app is backgrounded: AppState says "background" whether or not a
 // picture-in-picture window is showing the video.
 - (NSNumber *)isInPictureInPicture {

@@ -154,6 +154,7 @@ const App = () => {
               }
               pictureInPictureEnabled={true}
               autoStartPictureInPicture={true}
+              pictureInPictureKind="videoCall"
               pictureInPicturePreferredSize={{
                 width: 150,
                 height: 190,

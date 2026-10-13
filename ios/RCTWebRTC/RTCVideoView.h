@@ -39,7 +39,12 @@ typedef void (^RTCVideoViewEventBlock)(NSDictionary *body);
 
 @property(nonatomic, assign) CGSize pictureInPicturePreferredSize;
 
+/** The system window picture-in-picture uses: the player's, by default, or the video call's. */
+@property(nonatomic, assign) PIPControllerKind pictureInPictureKind;
+
 @property(nonatomic, copy) RTCVideoViewEventBlock onPictureInPictureChange;
+
+@property(nonatomic, copy) RTCVideoViewEventBlock onPictureInPicturePlayingChange;
 
 /**
  * In the fashion of

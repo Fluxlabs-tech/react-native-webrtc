@@ -15,9 +15,16 @@
 
 #import "PIPController.h"
 #import "RTCVideoView.h"
+#import "WebRTCModule+RTCMediaStream.h"
 #import "WebRTCModule.h"
 
-@implementation RTCVideoView
+@implementation RTCVideoView {
+    NSString *_streamURL;
+    /** The picture-in-picture window has the video paused, so the stream's remote audio is silent. */
+    BOOL _holdsAudio;
+    /** The stream whose remote audio is held silent. */
+    NSString *_audioHeldStreamURL;
+}
 
 @synthesize videoView = _videoView;
 @synthesize pipController = _pipController;
@@ -44,6 +51,21 @@
                 [videoTrack removeRenderer:self.videoView];
             });
         }
+    }
+
+    if (@available(iOS 15.0, *)) {
+        [_pipController sourceViewDidMoveToWindow];
+    }
+}
+
+- (void)dealloc {
+    // A paused window's hold on the stream's audio ends with the view.
+    NSString *held = _audioHeldStreamURL;
+    WebRTCModule *module = _module;
+    if (held && module) {
+        dispatch_async(module.workerQueue, ^{
+            [module setRemoteAudioOfStream:held held:NO];
+        });
     }
 }
 
@@ -84,7 +106,8 @@
     CGRect bounds = self.bounds;
     self.videoView.frame = bounds;
 
-    // Without a preferred size the window follows the screen, which turns as the app rotates.
+    // Without a preferred size the video call's window follows the screen, which turns as the app
+    // rotates.
     if (@available(iOS 15.0, *)) {
         _pipController.preferredSize = [self pictureInPictureSize];
     }
@@ -102,6 +125,22 @@
         _mirror = mirror;
 
         self.videoView.transform = mirror ? CGAffineTransformMakeScale(-1.0, 1.0) : CGAffineTransformIdentity;
+        if (@available(iOS 15.0, *)) {
+            _pipController.mirror = mirror;
+        }
+    }
+}
+
+- (void)setPictureInPictureKind:(PIPControllerKind)pictureInPictureKind {
+    if (_pictureInPictureKind != pictureInPictureKind) {
+        _pictureInPictureKind = pictureInPictureKind;
+        if (@available(iOS 15.0, *)) {
+            // Each kind has a content source, and so a controller, of its own.
+            if (_pipController) {
+                [self discardPictureInPictureController];
+                [self applyPictureInPictureParams];
+            }
+        }
     }
 }
 
@@ -149,14 +188,16 @@
 
 - (void)API_AVAILABLE(ios(15.0))applyPictureInPictureParams {
     if (!_pictureInPictureEnabled) {
-        _pipController = nil;
+        [self discardPictureInPictureController];
         return;
     }
 
     if (!_pipController) {
-        _pipController = [[PIPController alloc] initWithSourceView:self];
-        _pipController.videoTrack = _videoTrack;
+        _pipController = [[PIPController alloc] initWithSourceView:self kind:_pictureInPictureKind];
         _pipController.delegate = self;
+        _pipController.mirror = _mirror;
+        _pipController.objectFit = _objectFit;
+        _pipController.videoTrack = _videoTrack;
     }
 
     _pipController.preferredSize = [self pictureInPictureSize];
@@ -165,7 +206,19 @@
     _pipController.objectFit = _objectFit;
 }
 
-/** The window's shape: the preferred size, or without one the screen's, as the app holds it. */
+- (void)API_AVAILABLE(ios(15.0))discardPictureInPictureController {
+    BOOL paused = _pipController.paused;
+    _pipController = nil;
+    // Nothing is left to play it from: the video plays on.
+    if (paused) {
+        [self didChangePictureInPicturePlaying:YES];
+    }
+}
+
+/**
+ * The video call window's shape: the preferred size, or without one the screen's, as the app holds
+ * it. The player's window takes the video's.
+ */
 - (CGSize)pictureInPictureSize {
     if (!CGSizeEqualToSize(_pictureInPicturePreferredSize, CGSizeZero)) {
         return _pictureInPicturePreferredSize;
@@ -273,6 +326,10 @@
 }
 
 - (void)setStreamURL:(NSString *)streamURL {
+    _streamURL = [streamURL copy];
+    // A paused window holds whichever stream the view shows.
+    [self updateAudioHold];
+
     if (!streamURL) {
         self.videoTrack = nil;
         return;
@@ -298,11 +355,46 @@
     });
 }
 
+/**
+ * Silences the stream's remote audio while the picture-in-picture window has the video paused, as
+ * a player's pause would, and lets it play again after.
+ */
+- (void)updateAudioHold {
+    NSString *streamURL = _holdsAudio ? _streamURL : nil;
+    if (streamURL == _audioHeldStreamURL || [streamURL isEqualToString:_audioHeldStreamURL]) {
+        return;
+    }
+
+    WebRTCModule *module = self.module;
+    NSString *released = _audioHeldStreamURL;
+    _audioHeldStreamURL = module ? streamURL : nil;
+    if (!module) {
+        return;
+    }
+    dispatch_async(module.workerQueue, ^{
+        if (released) {
+            [module setRemoteAudioOfStream:released held:NO];
+        }
+        if (streamURL) {
+            [module setRemoteAudioOfStream:streamURL held:YES];
+        }
+    });
+}
+
 #pragma mark PIPControllerDelegate
 
-- (void)didChangePictureInPicture:(BOOL)isInPictureInPicture {
+- (void)didChangePictureInPicture:(BOOL)isInPictureInPicture dismissed:(BOOL)dismissed {
     if (self.onPictureInPictureChange) {
-        self.onPictureInPictureChange(@{@"isInPictureInPicture" : @(isInPictureInPicture)});
+        self.onPictureInPictureChange(
+            @{@"isInPictureInPicture" : @(isInPictureInPicture), @"dismissed" : @(dismissed)});
+    }
+}
+
+- (void)didChangePictureInPicturePlaying:(BOOL)playing {
+    _holdsAudio = !playing;
+    [self updateAudioHold];
+    if (self.onPictureInPicturePlayingChange) {
+        self.onPictureInPicturePlayingChange(@{@"playing" : @(playing)});
     }
 }
 

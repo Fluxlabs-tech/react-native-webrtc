@@ -12,6 +12,7 @@ export interface RTCPIPViewProps extends NativeVideoViewProps {
    * as the local camera may stop while in the background.
    *
    * iOS only. Requires iOS 15.0 or above, and the PIP background mode capability.
+   * The fallbackView shows in the 'videoCall' window only: see pictureInPictureKind.
    * @deprecated
    */
   iosPIP?: RTCIOSPIPOptions & {
@@ -28,8 +29,8 @@ export interface RTCIOSPIPOptions {
   enabled?: boolean;
 
   /**
-   * The preferred size of the PIP window: its shape, which the system scales.
-   * Defaults to the screen's shape.
+   * The preferred size of the 'videoCall' PIP window: its shape, which the system scales.
+   * Defaults to the screen's shape. The player's window takes the video's.
    */
   preferredSize?: {
     width: number;

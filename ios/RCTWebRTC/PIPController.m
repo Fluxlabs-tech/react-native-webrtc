@@ -1,13 +1,18 @@
 #import "PIPController.h"
 #import <AVKit/AVKit.h>
+#import "SampleBufferPlaybackView.h"
 #import "SampleBufferVideoCallView.h"
 
-@interface PIPController ()
+@interface PIPController ()<AVPictureInPictureSampleBufferPlaybackDelegate>
 
-@property(nonatomic, strong) AVPictureInPictureVideoCallViewController *pipCallViewController;
 @property(nonatomic, strong) AVPictureInPictureControllerContentSource *contentSource;
 @property(nonatomic, strong) AVPictureInPictureController *pipController;
-@property(nonnull, nonatomic, strong) SampleBufferVideoCallView *sampleView;
+
+// The video call's window: a view controller with the video, or the fallback view until there is one.
+@property(nonatomic, strong) AVPictureInPictureVideoCallViewController *pipCallViewController;
+@property(nonatomic, strong) SampleBufferVideoCallView *sampleView;
+// The player's window: the layer AVKit takes into it.
+@property(nonatomic, strong) SampleBufferPlaybackView *playbackView;
 
 @property(nonnull, nonatomic, strong) UIView *fallbackView;
 
@@ -16,7 +21,15 @@
 
 @end
 
-@implementation PIPController
+@implementation PIPController {
+    BOOL _inBackground;
+    /** Between the window's willStart and its didStart or failure. */
+    BOOL _starting;
+    /** AVKit asked for the app's interface back: the window is stopping for a return to the app. */
+    BOOL _restoring;
+    /** The app is stopping the window. */
+    BOOL _stopping;
+}
 
 /** Every live controller, held weakly, for isAnyPictureInPictureActive. */
 static NSHashTable<PIPController *> *PIPControllerInstances(void) {
@@ -40,8 +53,9 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
     return NO;
 }
 
-- (instancetype)initWithSourceView:(UIView *)sourceView {
+- (instancetype)initWithSourceView:(UIView *)sourceView kind:(PIPControllerKind)kind {
     if (self = [super init]) {
+        _kind = kind;
         self.sourceView = sourceView;
 
         NSHashTable<PIPController *> *instances = PIPControllerInstances();
@@ -51,20 +65,33 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 
         _fallbackView = [[UIView alloc] initWithFrame:CGRectZero];
         _fallbackView.translatesAutoresizingMaskIntoConstraints = false;
+        _inBackground = UIApplication.sharedApplication.applicationState == UIApplicationStateBackground;
 
-        SampleBufferVideoCallView *subview = [[SampleBufferVideoCallView alloc] initWithFrame:CGRectZero];
-        _sampleView = subview;
-        _sampleView.translatesAutoresizingMaskIntoConstraints = false;
-        _pipCallViewController = [[AVPictureInPictureVideoCallViewController alloc] init];
+        if (kind == PIPControllerKindVideoCall) {
+            SampleBufferVideoCallView *subview = [[SampleBufferVideoCallView alloc] initWithFrame:CGRectZero];
+            _sampleView = subview;
+            _sampleView.translatesAutoresizingMaskIntoConstraints = false;
+            _pipCallViewController = [[AVPictureInPictureVideoCallViewController alloc] init];
 
-        [self addToCallViewController:_fallbackView];
+            [self addToCallViewController:_fallbackView];
 
-        _contentSource = [[AVPictureInPictureControllerContentSource alloc]
-            initWithActiveVideoCallSourceView:sourceView
-                        contentViewController:_pipCallViewController];
+            _contentSource = [[AVPictureInPictureControllerContentSource alloc]
+                initWithActiveVideoCallSourceView:sourceView
+                            contentViewController:_pipCallViewController];
+        } else {
+            _playbackView = [[SampleBufferPlaybackView alloc] initWithFrame:sourceView.bounds];
+            _playbackView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [sourceView insertSubview:_playbackView atIndex:0];
+
+            _contentSource = [[AVPictureInPictureControllerContentSource alloc]
+                initWithSampleBufferDisplayLayer:_playbackView.displayLayer
+                                playbackDelegate:self];
+        }
 
         _pipController = [[AVPictureInPictureController alloc] initWithContentSource:_contentSource];
         _pipController.canStartPictureInPictureAutomaticallyFromInline = YES;
+        // Live: there is nothing to skip through or scrub, so the window greys its skip buttons out.
+        _pipController.requiresLinearPlayback = kind == PIPControllerKindPlayback;
         _pipController.delegate = self;
 
         [_pipController addObserver:self
@@ -72,10 +99,15 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
                             options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
                             context:nil];
 
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(applicationWillEnterForeground:)
-                                                     name:UIApplicationWillEnterForegroundNotification
-                                                   object:nil];
+        NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+        [center addObserver:self
+                   selector:@selector(applicationWillEnterForeground:)
+                       name:UIApplicationWillEnterForegroundNotification
+                     object:nil];
+        [center addObserver:self
+                   selector:@selector(applicationDidEnterBackground:)
+                       name:UIApplicationDidEnterBackgroundNotification
+                     object:nil];
     }
 
     return self;
@@ -89,15 +121,43 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
         BOOL active = [change[NSKeyValueChangeNewKey] boolValue];
         _sampleView.shouldRender = active;
         self.pictureInPictureActive = active;
+        [self updateRendering];
     }
 }
 
+- (void)applicationDidEnterBackground:(NSNotification *)notification {
+    _inBackground = YES;
+    [self updateRendering];
+}
+
 - (void)applicationWillEnterForeground:(NSNotification *)notification {
+    _inBackground = NO;
+    [self updateRendering];
+
+    // Closing the window paused the video; back in the app, it plays.
+    if (!_pipController.isPictureInPictureActive) {
+        [self setPaused:NO];
+    }
+
     if (_stopAutomatically) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            [self.pipController stopPictureInPicture];
+            [self stopPIP];
         });
     }
+}
+
+- (void)sourceViewDidMoveToWindow {
+    [self updateRendering];
+}
+
+/**
+ * The player's layer takes frames while the app shows the view, so the window opens on the current
+ * picture, and while the window shows or opens. In the background without the window, the layer
+ * would only fail them.
+ */
+- (void)updateRendering {
+    _playbackView.rendering = _starting || _pipController.isPictureInPictureActive ||
+                              (!_inBackground && self.sourceView.window != nil);
 }
 
 - (void)addToCallViewController:(UIView *)view {
@@ -111,13 +171,31 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
     [NSLayoutConstraint activateConstraints:constraints];
 }
 
+/** What draws the track: the video call's view, or the player's layer. */
+- (id<RTCVideoRenderer>)renderer {
+    if (_sampleView) {
+        return _sampleView;
+    }
+    return _playbackView;
+}
+
 - (void)setVideoTrack:(RTCVideoTrack *)videoTrack {
-    if (_videoTrack != videoTrack) {
-        [_videoTrack removeRenderer:_sampleView];
+    if (_videoTrack == videoTrack) {
+        return;
     }
 
+    [_videoTrack removeRenderer:self.renderer];
     _videoTrack = videoTrack;
-    [videoTrack addRenderer:_sampleView];
+    [videoTrack addRenderer:self.renderer];
+
+    if (_kind == PIPControllerKindPlayback) {
+        if (!videoTrack) {
+            [_playbackView clear];
+        }
+        // Whether there is anything to play.
+        [_pipController invalidatePlaybackState];
+        return;
+    }
 
     if (_videoTrack) {
         if (!_sampleView.superview) {
@@ -141,11 +219,15 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 }
 
 - (void)setObjectFit:(RTCVideoViewObjectFit)fit {
-    if (fit == RTCVideoViewObjectFitCover) {
-        self.sampleView.sampleBufferLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    } else {
-        self.sampleView.sampleBufferLayer.videoGravity = AVLayerVideoGravityResizeAspect;
-    }
+    AVLayerVideoGravity gravity =
+        fit == RTCVideoViewObjectFitCover ? AVLayerVideoGravityResizeAspectFill : AVLayerVideoGravityResizeAspect;
+    self.sampleView.sampleBufferLayer.videoGravity = gravity;
+    [self.playbackView setVideoGravity:gravity];
+}
+
+- (void)setMirror:(BOOL)mirror {
+    _mirror = mirror;
+    _playbackView.mirror = mirror;
 }
 
 - (CGSize)preferredSize {
@@ -169,9 +251,9 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 
 - (void)togglePIP {
     if (_pipController.isPictureInPictureActive) {
-        [_pipController stopPictureInPicture];
-    } else if (_pipController.isPictureInPicturePossible) {
-        [_pipController startPictureInPicture];
+        [self stopPIP];
+    } else {
+        [self startPIP];
     }
 }
 
@@ -183,92 +265,105 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 
 - (void)stopPIP {
     if (_pipController.isPictureInPictureActive) {
+        _stopping = YES;
         [_pipController stopPictureInPicture];
     }
 }
 
-- (void)didChangePictureInPicture:(BOOL)isInPictureInPicture {
-    if ([self.delegate respondsToSelector:@selector(didChangePictureInPicture:)]) {
-        [self.delegate didChangePictureInPicture:isInPictureInPicture];
+- (void)setPaused:(BOOL)paused {
+    if (_paused == paused) {
+        return;
+    }
+
+    _paused = paused;
+    _playbackView.paused = paused;
+    [_pipController invalidatePlaybackState];
+    if ([self.delegate respondsToSelector:@selector(didChangePictureInPicturePlaying:)]) {
+        [self.delegate didChangePictureInPicturePlaying:!paused];
     }
 }
 
 - (void)dealloc {
-    [_videoTrack removeRenderer:_sampleView];
+    [_videoTrack removeRenderer:self.renderer];
+    [_playbackView removeFromSuperview];
     [_pipController removeObserver:self forKeyPath:@"pictureInPictureActive"];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationDidBecomeActiveNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-@end
+#pragma mark AVPictureInPictureControllerDelegate
 
-@implementation PIPController (AVPictureInPictureControllerDelegate)
-
-/*!
-    @method        pictureInPictureControllerWillStartPictureInPicture:
-    @param        pictureInPictureController
-                The Picture in Picture controller.
-    @abstract    Delegate can implement this method to be notified when Picture in Picture will start.
- */
 - (void)pictureInPictureControllerWillStartPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
-    NSLog(@"%@", NSStringFromSelector(_cmd));  // Objective-C
+    _starting = YES;
+    _restoring = NO;
+    _stopping = NO;
+    [self updateRendering];
 }
 
-/*!
-    @method        pictureInPictureControllerDidStartPictureInPicture:
-    @param        pictureInPictureController
-                The Picture in Picture controller.
-    @abstract    Delegate can implement this method to be notified when Picture in Picture did start.
- */
 - (void)pictureInPictureControllerDidStartPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
-    [self didChangePictureInPicture:YES];
-    NSLog(@"%@", NSStringFromSelector(_cmd));  // Objective-C
+    _starting = NO;
+    [self updateRendering];
+    [self.delegate didChangePictureInPicture:YES dismissed:NO];
 }
 
-/*!
-    @method        pictureInPictureController:failedToStartPictureInPictureWithError:
-    @param        pictureInPictureController
-                The Picture in Picture controller.
-    @param        error
-                An error describing why it failed.
-    @abstract    Delegate can implement this method to be notified when Picture in Picture failed to start.
- */
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
     failedToStartPictureInPictureWithError:(NSError *)error {
-    NSLog(@"%@: %@", NSStringFromSelector(_cmd), [error localizedDescription]);  // Objective-C
+    _starting = NO;
+    [self updateRendering];
+    NSLog(@"Picture-in-picture failed to start: %@", error.localizedDescription);
 }
 
-/*!
-    @method        pictureInPictureControllerWillStopPictureInPicture:
-    @param        pictureInPictureController
-                The Picture in Picture controller.
-    @abstract    Delegate can implement this method to be notified when Picture in Picture will stop.
- */
-- (void)pictureInPictureControllerWillStopPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
-    NSLog(@"%@", NSStringFromSelector(_cmd));  // Objective-C
-}
-
-/*!
-    @method        pictureInPictureControllerDidStopPictureInPicture:
-    @param        pictureInPictureController
-                The Picture in Picture controller.
-    @abstract    Delegate can implement this method to be notified when Picture in Picture did stop.
- */
 - (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
-    [self didChangePictureInPicture:NO];
-    NSLog(@"%@", NSStringFromSelector(_cmd));  // Objective-C
+    // The viewer closed the window, rather than returning to the app or the app stopping it.
+    BOOL dismissed = _inBackground && !_restoring && !_stopping;
+    _restoring = NO;
+    _stopping = NO;
+    [self updateRendering];
+    // AVKit gives the layer back as it took it; the view may have changed size meanwhile.
+    [_playbackView setNeedsLayout];
+
+    [self.delegate didChangePictureInPicture:NO dismissed:dismissed];
+    if (_kind == PIPControllerKindPlayback) {
+        // As with the system's own players: closing the window pauses the video, returning to the
+        // app plays it.
+        [self setPaused:dismissed];
+    }
 }
 
-/*!
-    @method        pictureInPictureController:restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:
-    @param        pictureInPictureController
-                The Picture in Picture controller.
-    @param        completionHandler
-                The completion handler the delegate needs to call after restore.
-    @abstract    Delegate can implement this method to restore the user interface before Picture in Picture stops.
- */
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:(void (^)(BOOL restored))completionHandler {
-    NSLog(@"%@", NSStringFromSelector(_cmd));  // Objective-C
+    _restoring = YES;
+    // The view never left the app: there is nothing to put back.
+    completionHandler(YES);
+}
+
+#pragma mark AVPictureInPictureSampleBufferPlaybackDelegate
+
+- (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController setPlaying:(BOOL)playing {
+    [self setPaused:!playing];
+}
+
+- (CMTimeRange)pictureInPictureControllerTimeRangeForPlayback:(AVPictureInPictureController *)controller {
+    // Live, which the window shows as such. Without a video there is nothing to play, unless the
+    // window already shows.
+    if (_videoTrack || self.pictureInPictureActive) {
+        return CMTimeRangeMake(kCMTimeNegativeInfinity, kCMTimePositiveInfinity);
+    }
+    return kCMTimeRangeInvalid;
+}
+
+- (BOOL)pictureInPictureControllerIsPlaybackPaused:(AVPictureInPictureController *)pictureInPictureController {
+    return _paused;
+}
+
+- (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
+         didTransitionToRenderSize:(CMVideoDimensions)newRenderSize {
+}
+
+- (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
+                    skipByInterval:(CMTime)skipInterval
+                 completionHandler:(void (^)(void))completionHandler {
+    // Live: there is nowhere to skip to.
+    completionHandler();
 }
 
 @end

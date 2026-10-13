@@ -94,6 +94,7 @@
         }
 
         if (!self.renderer.readyForMoreMediaData) {
+            CFRelease(sampleBuffer);
             return;
         }
 
@@ -115,19 +116,28 @@
     }
 
     // Create a CMVideoFormatDescription
-    CMVideoFormatDescriptionRef formatDescription;
-    CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &formatDescription);
+    CMVideoFormatDescriptionRef formatDescription = NULL;
+    if (CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &formatDescription) != noErr) {
+        CVPixelBufferRelease(pixelBuffer);
+        return nil;
+    }
 
     // Create CMSampleTimingInfo
     // Timescale is 90khz according to RTCVideoFrame.h
     CMSampleTimingInfo timingInfo;
+    timingInfo.duration = kCMTimeInvalid;
     timingInfo.presentationTimeStamp = CMTimeMake(rtcVideoFrame.timeStamp, 90000);
     timingInfo.decodeTimeStamp = CMTimeMake(rtcVideoFrame.timeStamp, 90000);
 
     // Create CMSampleBuffer
-    CMSampleBufferRef sampleBuffer;
-    CMSampleBufferCreateForImageBuffer(
+    CMSampleBufferRef sampleBuffer = NULL;
+    OSStatus status = CMSampleBufferCreateForImageBuffer(
         kCFAllocatorDefault, pixelBuffer, true, nil, nil, formatDescription, &timingInfo, &sampleBuffer);
+    CFRelease(formatDescription);
+    if (status != noErr) {
+        CVPixelBufferRelease(pixelBuffer);
+        return nil;
+    }
 
     CFArrayRef attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, YES);
     CFMutableDictionaryRef dict = (CFMutableDictionaryRef)CFArrayGetValueAtIndex(attachments, 0);

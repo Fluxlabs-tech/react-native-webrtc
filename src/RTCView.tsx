@@ -82,12 +82,27 @@ interface RTCVideoViewBaseProps extends ViewProps {
   /**
    * The preferred size of the PIP window: its shape, which the system scales.
    *
-   * Defaults to the screen's shape on iOS, and the video's on Android.
+   * Android, and iOS's 'videoCall' window; the iOS player's window takes the video's shape.
+   * Defaults to the video's shape on Android, and the screen's for the 'videoCall' window.
    */
   pictureInPicturePreferredSize?: {
     width: number;
     height: number;
   };
+  /**
+   * iOS: the system window Picture in Picture shows the video in.
+   *
+   * - 'playback': the system player's, as for live video: a LIVE badge and the live bar, stop
+   *   and play, and the buttons to close it and to return to the app, in the system's own look
+   *   (Liquid Glass from iOS 26). Its skip buttons are greyed out. It takes the video's shape,
+   *   upright and mirrored as this view shows it.
+   * - 'videoCall': the video call's, which has no controls. It takes the shape of
+   *   pictureInPicturePreferredSize, and shows this view's children until the video has a
+   *   frame. Apple meant it for a call that is going on.
+   *
+   * Defaults to 'playback'.
+   */
+  pictureInPictureKind?: 'playback' | 'videoCall';
   /**
    * Indicates whether Picture in Picture should stop automatically
    * when the app returns to the foreground.
@@ -101,6 +116,8 @@ interface NativeVideoViewProps extends RTCVideoViewBaseProps {
   onPictureInPictureChange?: (
     event: NativeSyntheticEvent<{ isInPictureInPicture: boolean; dismissed?: boolean }>
   ) => void;
+
+  onPictureInPicturePlayingChange?: (event: NativeSyntheticEvent<{ playing: boolean }>) => void;
 
   /**
   * Callback function that is called when the dimensions of the video change.
@@ -121,14 +138,27 @@ interface RTCVideoViewProps extends RTCVideoViewBaseProps {
   *
   * @param {boolean} isInPictureInPicture - Whether the app is now in Picture-in-Picture.
   * @param {Object} details
-  * @param {boolean} details.dismissed - Android: Picture-in-Picture ended because the user
-  * closed the window, not because they returned to the app. The app is still in the
-  * background, so this is the moment to stop playback. Always false on iOS and on entering.
+  * @param {boolean} details.dismissed - Picture-in-Picture ended because the user closed the
+  * window, not because they returned to the app. The app is still in the background, so this
+  * is the moment to stop playback; the iOS player's window has paused it. Always false on
+  * entering.
   */
   onPictureInPictureChange?: (
     isInPictureInPicture: boolean,
     details: { dismissed: boolean }
   ) => void;
+  /**
+  * iOS, the player's window: the video stopped or played there. The viewer pressed the
+  * window's stop or play button; closing the window stops it too, and returning to the app
+  * plays it.
+  *
+  * While stopped the window holds the last frame and the stream's remote audio is silent;
+  * playing again goes back to live. The stream still arrives meanwhile: to save data over a
+  * long stop, end the session, and start it again when this reports playing.
+  *
+  * @param {boolean} playing - Whether the video plays.
+  */
+  onPictureInPicturePlayingChange?: (playing: boolean) => void;
   /**
   * Callback function that is called when the dimensions of the video change.
   *
@@ -148,6 +178,7 @@ class RTCView extends React.PureComponent<RTCVideoViewProps> {
     constructor(props: RTCVideoViewProps) {
         super(props);
         this.onPictureInPictureChange = this.onPictureInPictureChange.bind(this);
+        this.onPictureInPicturePlayingChange = this.onPictureInPicturePlayingChange.bind(this);
         this.onDimensionsChange = this.onDimensionsChange.bind(this);
     }
 
@@ -192,6 +223,10 @@ class RTCView extends React.PureComponent<RTCVideoViewProps> {
         );
     }
 
+    private onPictureInPicturePlayingChange(event: NativeSyntheticEvent<{ playing: boolean }>) {
+        this.props.onPictureInPicturePlayingChange?.(event.nativeEvent.playing);
+    }
+
     private onDimensionsChange(
         event: NativeSyntheticEvent<{ width: number; height: number }>
     ) {
@@ -208,6 +243,7 @@ class RTCView extends React.PureComponent<RTCVideoViewProps> {
                 {...props}
                 ref={this.ref}
                 onPictureInPictureChange={this.onPictureInPictureChange}
+                onPictureInPicturePlayingChange={this.onPictureInPicturePlayingChange}
                 onDimensionsChange={this.onDimensionsChange}
             />
         );
