@@ -14,7 +14,7 @@ Pod::Spec.new do |s|
   s.source              = { :git => 'https://github.com/Fluxlabs-tech/react-native-webrtc.git', :tag => "v#{s.version}" }
   s.requires_arc        = true
 
-  s.platforms           = { :ios => '12.0', :osx => '10.13', :tvos => '16.0' }
+  s.platforms           = { :ios => '14.0', :osx => '10.13', :tvos => '16.0' }
 
   s.preserve_paths      = 'ios/**/*'
   s.source_files        = 'ios/**/*.{h,m,mm,c}'
@@ -23,7 +23,7 @@ Pod::Spec.new do |s|
   # The livestream network monitor's path monitor.
   s.ios.framework       = 'Network'
   s.tvos.framework      = 'Network'
-  s.dependency          'JitsiWebRTC', '~> 124.0.0'
+  s.dependency          'JitsiWebRTC', '~> 155.0.0'
 
   # React-Core plus the codegen and Fabric dependencies the TurboModule and the component views build
   # against.
