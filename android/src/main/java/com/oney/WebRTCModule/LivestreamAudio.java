@@ -202,9 +202,8 @@ final class LivestreamAudio {
         StringBuilder trials = new StringBuilder(fieldTrials != null ? fieldTrials : "");
         addTrial(trials, PLAYOUT_BUFFER_TRIAL, "2.0");
         if (networkResilience) {
-            // While packets are being lost, video waits a whole round trip for the resend; the
-            // default caps the wait at 200 ms, which a mobile network outlasts.
-            addTrial(trials, "WebRTC-RttMult", "Disabled");
+            // The wait for a resent video packet has had no switch since libwebrtc M155 (at most
+            // 200 ms past the jitter); a playout delay is what gives resends their time.
             // A keyframe of a sharp stream arrives as one burst; 256 KB overflows.
             addTrial(trials, "WebRTC-ReceiveBufferSize", "size_bytes:1048576");
         }

@@ -233,7 +233,10 @@
         }
     }
 
-    [transceiver setCodecPreferences:codecsToSet];
+    NSError *error = nil;
+    if (![transceiver setCodecPreferences:codecsToSet error:&error]) {
+        RCTLogWarn(@"transceiverSetCodecPreferences() failed: %@", error.localizedDescription);
+    }
 
     return nil;
 }

@@ -85,9 +85,8 @@ static double LivestreamPeakDb(float peak) {
             [NSString stringWithFormat:@"min_ms:%.0f,max_ms:%.0f", config.playoutDelayMs, config.maxPlayoutDelayMs];
     }
     if (_networkResilience) {
-        // While packets are being lost, wait a whole round trip for the resend. The default caps
-        // the wait at 200 ms, which a mobile network outlasts.
-        trials[@"WebRTC-RttMult"] = @"Disabled";
+        // The wait for a resent video packet has had no switch since libwebrtc M155 (at most
+        // 200 ms past the jitter); a playout delay is what gives resends their time.
         // A keyframe of a sharp stream arrives as one burst; 256 KB overflows.
         trials[@"WebRTC-ReceiveBufferSize"] = @"size_bytes:1048576";
     }

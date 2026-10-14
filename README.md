@@ -1,8 +1,8 @@
-> **This is `@fluxlabs/react-native-webrtc`**, a fork of [react-native-webrtc](https://github.com/react-native-webrtc/react-native-webrtc) 124.0.8 that adds seamless picture-in-picture on Android and the system player's picture-in-picture on iOS. The sections after this one are upstream's README.
+> **This is `@fluxlabs/react-native-webrtc`**, a fork of [react-native-webrtc](https://github.com/react-native-webrtc/react-native-webrtc) 155.0.0 that adds seamless picture-in-picture on Android and the system player's picture-in-picture on iOS. The sections after this one are upstream's README.
 
 ## About this fork
 
-Upstream **124.0.8**, plus picture-in-picture for `RTCView` on Android. It starts from [react-native-webrtc#1710](https://github.com/react-native-webrtc/react-native-webrtc/pull/1710) by [@EdgarJMesquita](https://github.com/EdgarJMesquita), reworked so the transition is seamless:
+Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It starts from [react-native-webrtc#1710](https://github.com/react-native-webrtc/react-native-webrtc/pull/1710) by [@EdgarJMesquita](https://github.com/EdgarJMesquita), reworked so the transition is seamless:
 
 - The video replaces the screen as the transition starts (Android 15+ reports it; earlier versions when the activity pauses into PiP), so the shrink animation shows the video, not the controls drawn over it.
 - A still of the last frame covers the moved video surface until it draws again, so there is no black flash.
@@ -14,7 +14,7 @@ Upstream **124.0.8**, plus picture-in-picture for `RTCView` on Android. It start
 Install it under the upstream name, so imports and native project names do not change:
 
 ```sh
-yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@124.4.0
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.1.0
 ```
 
 ### Picture-in-picture
@@ -92,7 +92,7 @@ With Expo, in `app.json`. Every option is optional:
 | `livestream.maxPlayoutDelayMs` | 2500 or the delay | How far video may drift behind under heavy jitter. |
 | `livestream.leveller` | `true` | A voice leveller on remote audio: input gain, a soft-knee compressor and a −1 dBFS limiter, so quiet hosts are lifted and nothing clips. |
 | `livestream.levellerInputGainDb` | `15` | How far the leveller lifts a quiet speaker, 0 to 30. |
-| `livestream.networkResilience` | `true` | While packets are being lost, wait a whole round trip for the resend rather than at most 200 ms, and a 1 MB socket buffer that holds a sharp keyframe. |
+| `livestream.networkResilience` | `true` | A 1 MB socket buffer that holds a sharp keyframe. Since libwebrtc M155 the wait for a resent video packet has no switch: at most 200 ms past the jitter. A playout delay gives resends more time. |
 | `livestream.ios.manageAudioSession` | `true` | Set the audio session: `.playback` / `.moviePlayback` while watching, `.playAndRecord` / `.videoRecording` while live. |
 | `livestream.android.audioFocus` | `true` | Take audio focus while playing or recording, and go quiet for a phone call. |
 | `livestream.android.audioSource` | `mic` | Where a host's microphone is recorded from: `mic`, `camcorder`, `voiceCommunication` (the platform's echo canceller and noise suppressor) or `unprocessed`. |
@@ -142,7 +142,7 @@ For a server with signalling of its own, subclass `LivestreamViewer` and impleme
 What a player does:
 
 - **Follows the network.** With no network it waits rather than use up retries, and the moment one is back, or the phone moves to another, it connects again instead of waiting out a backoff; a disconnect just after a network change is acted on in 2 s rather than 8. ICE keeps gathering meanwhile, so with a server that takes new candidates the stream carries on over the new network without a new session. `livestreamNetwork` tells the app the same: online or not, Wi‑Fi or cellular, metered, and Low Data Mode or Data Saver.
-- **Recovers lost packets.** It asks for lost video and audio packets again (for audio, where the server offers it), and Opus conceals what does not come back. With `networkResilience` a resend is awaited a whole round trip, and a playout delay gives resends time to arrive.
+- **Recovers lost packets.** It asks for lost video and audio packets again (for audio, where the server offers it), and Opus conceals what does not come back. A playout delay gives resends time to arrive: libwebrtc itself waits at most 200 ms past the jitter for one.
 - **Shows the frames resends complete, on Android too.** A resend completes a frame late, and the frames behind it all at once. libwebrtc's Android hardware decoder dropped such bursts, and after each frame the decoder skipped it reported the next frames' decode time a frame too long, so libwebrtc kept shrinking the jitter buffer until frames came too late to show. At 2% loss a Snapdragon phone played 4 frames a second. H.264 now decodes through `SteadyVideoDecoderFactory`, the same decoder with frames matched by timestamp and bursts queued, which plays that stream at 29.
 - **Says how it is going.** `onStats` every 2 s, with a `quality` of `excellent`, `good`, `poor` or `bad`, judged on what the viewer gets: packets lost for good, freezes, missing frames, audio made up for, and the round trip, rather than bandwidth estimates, which swing by half with nothing wrong. `qualityLimitation` says whose it is: `network` (this phone's connection), `source` (the stream itself arrives thin with nothing lost on the way: the host's connection, or the server's), or `device`. For a banner that blames the right side, a QoE event, or a switch to another rendition or to HLS.
 - **Adds it up for analytics.** A `LivestreamWatchReport` takes each interval (`onStats: stats => report.add(stats)`) and, as the viewer leaves, `report.summary()` gives the watch as a whole: freezes (a frame far later than those before it) and stalls (no frames for seconds, including one a reconnect cut short), the share of the time the picture stood still, the median and lowest height, median frame rate, bitrate, loss and dropped frames, the jitter buffer at p50 and p95, audio concealment and the seconds of audible gaps, the round trip at p50 and p95, whether a TURN relay carried any of it, and the seconds at each quality with what held it back longest. It reads each interval's numbers, never a connection's running totals, so one report follows the watch across new peer connections. Send it once per watch, as one event, rather than each sample.
@@ -327,7 +327,7 @@ Software encode/decode factories have been enabled by default.
 
 ## WebRTC Revision
 
-* Currently used revision: [M124](https://github.com/jitsi/webrtc/tree/M124)
+* Currently used revision: [M155](https://github.com/jitsi/webrtc/tree/M155)
 * Supported architectures
   * Android: armeabi-v7a, arm64-v8a, x86, x86_64
   * iOS: arm64, x86_64

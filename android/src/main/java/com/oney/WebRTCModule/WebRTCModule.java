@@ -870,7 +870,10 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
                     }
                 }
 
-                transceiver.setCodecPreferences(codecsToSet);
+                RtcError result = transceiver.setCodecPreferences(codecsToSet);
+                if (result.isError()) {
+                    Log.d(TAG, "transceiverSetCodecPreferences(): " + result.error().getMessage());
+                }
             } catch (Exception e) {
                 Log.d(TAG, "transceiverSetCodecPreferences(): " + e.getMessage());
             }
