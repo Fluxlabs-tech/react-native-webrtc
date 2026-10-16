@@ -59,6 +59,20 @@
 }
 
 - (void)dealloc {
+    // The picture-in-picture controller goes with the view: left alone, it stays registered with the
+    // system after the view is gone. AVKit is main-thread only, and the last hold on a view can be a
+    // block on the worker queue.
+    if (@available(iOS 15.0, *)) {
+        PIPController *pipController = _pipController;
+        if (pipController && NSThread.isMainThread) {
+            [pipController invalidate];
+        } else if (pipController) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [pipController invalidate];
+            });
+        }
+    }
+
     // A paused window's hold on the stream's audio ends with the view.
     NSString *held = _audioHeldStreamURL;
     WebRTCModule *module = _module;
@@ -208,6 +222,7 @@
 
 - (void)API_AVAILABLE(ios(15.0))discardPictureInPictureController {
     BOOL paused = _pipController.paused;
+    [_pipController invalidate];
     _pipController = nil;
     // Nothing is left to play it from: the video plays on.
     if (paused) {

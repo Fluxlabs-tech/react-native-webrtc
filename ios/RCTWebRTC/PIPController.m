@@ -29,6 +29,10 @@
     BOOL _restoring;
     /** The app is stopping the window. */
     BOOL _stopping;
+    /** The app wants the window to start as it leaves; offered only while the view is on screen. */
+    BOOL _startAutomaticallyRequested;
+    /** Discarded: offers, shows and draws nothing again. */
+    BOOL _invalidated;
 }
 
 /** Every live controller, held weakly, for isAnyPictureInPictureActive. */
@@ -89,10 +93,11 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
         }
 
         _pipController = [[AVPictureInPictureController alloc] initWithContentSource:_contentSource];
-        _pipController.canStartPictureInPictureAutomaticallyFromInline = YES;
         // Live: there is nothing to skip through or scrub, so the window greys its skip buttons out.
         _pipController.requiresLinearPlayback = kind == PIPControllerKindPlayback;
         _pipController.delegate = self;
+        _startAutomaticallyRequested = YES;
+        [self updateStartAutomatically];
 
         [_pipController addObserver:self
                          forKeyPath:@"pictureInPictureActive"
@@ -148,6 +153,7 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 
 - (void)sourceViewDidMoveToWindow {
     [self updateRendering];
+    [self updateStartAutomatically];
 }
 
 /**
@@ -158,6 +164,18 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 - (void)updateRendering {
     _playbackView.rendering = _starting || _pipController.isPictureInPictureActive ||
                               (!_inBackground && self.sourceView.window != nil);
+}
+
+/**
+ * Only a view on screen offers to start the window as the app leaves. AVKit does not notice the view
+ * going, so a controller that outlives it stays registered with the system, still offering; and with
+ * more than one of an app's controllers offering, iOS starts none (SpringBoard's "ShouldAutoPiP: NO").
+ */
+- (void)updateStartAutomatically {
+    BOOL offer = !_invalidated && _startAutomaticallyRequested && self.sourceView.window != nil;
+    if (_pipController.canStartPictureInPictureAutomaticallyFromInline != offer) {
+        _pipController.canStartPictureInPictureAutomaticallyFromInline = offer;
+    }
 }
 
 - (void)addToCallViewController:(UIView *)view {
@@ -180,7 +198,7 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 }
 
 - (void)setVideoTrack:(RTCVideoTrack *)videoTrack {
-    if (_videoTrack == videoTrack) {
+    if (_invalidated || _videoTrack == videoTrack) {
         return;
     }
 
@@ -242,11 +260,12 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 }
 
 - (BOOL)startAutomatically {
-    return _pipController.canStartPictureInPictureAutomaticallyFromInline;
+    return _startAutomaticallyRequested;
 }
 
 - (void)setStartAutomatically:(BOOL)value {
-    _pipController.canStartPictureInPictureAutomaticallyFromInline = value;
+    _startAutomaticallyRequested = value;
+    [self updateStartAutomatically];
 }
 
 - (void)togglePIP {
@@ -283,11 +302,33 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
     }
 }
 
-- (void)dealloc {
-    [_videoTrack removeRenderer:self.renderer];
-    [_playbackView removeFromSuperview];
+- (void)invalidate {
+    if (_invalidated) {
+        return;
+    }
+    _invalidated = YES;
+
+    // Withdrawn first: the system may go on holding this controller, but no longer counts it.
+    _pipController.canStartPictureInPictureAutomaticallyFromInline = NO;
+    if (_pipController.isPictureInPictureActive) {
+        _stopping = YES;
+        [_pipController stopPictureInPicture];
+    }
+    _pipController.delegate = nil;
     [_pipController removeObserver:self forKeyPath:@"pictureInPictureActive"];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    self.pictureInPictureActive = NO;
+
+    [_videoTrack removeRenderer:self.renderer];
+    _videoTrack = nil;
+    // The layer goes back out of AVKit, which would otherwise keep it for as long as it keeps the
+    // controller.
+    _pipController.contentSource = nil;
+    [_playbackView removeFromSuperview];
+}
+
+- (void)dealloc {
+    [self invalidate];
 }
 
 #pragma mark AVPictureInPictureControllerDelegate

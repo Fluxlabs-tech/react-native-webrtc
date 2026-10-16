@@ -59,7 +59,16 @@ API_AVAILABLE(ios(15.0))
 - (void)stopPIP;
 - (void)insertFallbackView:(UIView *)subview;
 - (void)setObjectFit:(RTCVideoViewObjectFit)fit;
-/** The source view moved to or from a window. */
+/**
+ * The source view moved to or from a window. Off screen, the controller stops offering to start the
+ * window as the app leaves.
+ */
 - (void)sourceViewDidMoveToWindow;
+/**
+ * Closes the window and lets go of the video and the layer, for good. For a controller being
+ * discarded: left alone, one stays registered with the system after its view is gone, and iOS
+ * starts no window at all when more than one of an app's controllers offers to start one.
+ */
+- (void)invalidate;
 
 @end
