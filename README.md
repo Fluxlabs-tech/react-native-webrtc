@@ -14,7 +14,7 @@ Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It start
 Install it under the upstream name, so imports and native project names do not change:
 
 ```sh
-yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.1.0
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.1.1
 ```
 
 ### Picture-in-picture
@@ -244,6 +244,17 @@ This fork runs on the New Architecture only, React Native 0.76 or later: `WebRTC
 - The JS API is the same, except `ScreenCapturePickerView`: it is a component with a `show()` method. Replace `NativeModules.ScreenCapturePickerViewManager.show(findNodeHandle(ref.current))` with `ref.current?.show()`.
 - A new native method goes in `src/NativeWebRTCModule.ts`, then on both platforms with the signature codegen generates. On iOS, debug builds log any spec method the module lacks or declares with other types.
 - A new event goes in the spec too, then in `WebRTCModule.h` and `WebRTCModuleEvents()` on iOS and in `WebRTCModule.emitEvent()` on Android.
+
+### Release builds
+
+An Android release build shrunk by R8 needs no rules of its own: the library's consumer rules (`android/consumer-rules.pro`) keep what libwebrtc's native code reaches by name.
+
+- `org.webrtc.**`, in full.
+- From M155, the methods and fields that jni_zero, libwebrtc's JNI layer, marks `@CalledByNative`, `@CalledByNativeUnchecked` or `@AccessedByNative`. Loading the library calls one of them, `org.jni_zero.JniZero.init`.
+- `J.N`, where M155 declares the native methods its Java classes call.
+- `-dontwarn org.webrtc.Dav1dDecoder$Natives`: the M155 build refers to that class but does not ship it.
+
+Before 155.1.1 the rules kept `org.webrtc.**` only. R8 then failed on `Dav1dDecoder$Natives`, and an app whose own rules silenced that crashed as WebRTC loaded, in `JNI_OnLoad`, with `JNI DETECTED ERROR IN APPLICATION: java_class == null in call to GetStaticMethodID`. Upstream 155.0.0 has the same rules. Debug builds are not shrunk, so they never show it.
 
 ### Performance
 
