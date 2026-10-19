@@ -64,6 +64,9 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
     private final SparseArray<PeerConnectionObserver> mPeerConnectionObservers;
     final Map<String, MediaStream> localStreams;
 
+    // The remote audio muted views hold silent. Only used on the executor.
+    final RemoteAudioHolds remoteAudioHolds;
+
     // Store generated certificates by ID to avoid exposing private keys to JS
     private static final Map<String, RtcCertificatePem> mCertificates = new HashMap<>();
 
@@ -81,6 +84,7 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
 
         mPeerConnectionObservers = new SparseArray<>();
         localStreams = new HashMap<>();
+        remoteAudioHolds = new RemoteAudioHolds(mPeerConnectionObservers);
 
         WebRTCModuleOptions options = WebRTCModuleOptions.getInstance();
 
@@ -524,6 +528,14 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
         }
 
         return null;
+    }
+
+    /**
+     * Adds a hold on a stream's remote audio, or lets go of one: a muted view holds the stream it
+     * shows. See {@link RemoteAudioHolds}.
+     */
+    void setRemoteAudioOfStreamHeld(String streamReactTag, boolean held) {
+        ThreadUtils.runOnExecutor(() -> remoteAudioHolds.setHeld(streamReactTag, held));
     }
 
     public MediaStreamTrack getTrack(int pcId, String trackId) {
@@ -1121,6 +1133,11 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
                 return;
             }
 
+            // A hold keeps the track silent: it takes this state when the hold ends.
+            if (pcId != -1 && remoteAudioHolds.setEnabledAfterHold(pcId, track, enabled)) {
+                return;
+            }
+
             if (track.enabled() == enabled) {
                 return;
             }
@@ -1603,6 +1620,7 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
                 Log.d(TAG, "peerConnectionDispose() peerConnection is null");
                 return;
             }
+            remoteAudioHolds.forget(id);
             pco.dispose();
             mPeerConnectionObservers.remove(id);
         });

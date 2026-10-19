@@ -22,6 +22,7 @@ export interface NativeProps extends ViewProps {
     mirror?: boolean;
     objectFit?: string;
     zOrder?: Int32;
+    muted?: WithDefault<boolean, false>;
     pictureInPictureEnabled?: WithDefault<boolean, false>;
     autoStartPictureInPicture?: WithDefault<boolean, true>;
     autoStopPictureInPicture?: WithDefault<boolean, true>;

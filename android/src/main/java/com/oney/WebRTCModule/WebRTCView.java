@@ -139,6 +139,16 @@ public class WebRTCView extends ViewGroup {
     private String streamURL;
 
     /**
+     * Whether the remote audio of the stream this view shows is silent: the {@code muted} prop.
+     */
+    private boolean muted;
+
+    /**
+     * The stream whose remote audio this view holds silent, if any.
+     */
+    private String audioHeldStreamURL;
+
+    /**
      * The {@link View} and {@link VideoSink} implementation which
      * actually renders {@link #videoTrack} on behalf of this instance.
      */
@@ -499,11 +509,53 @@ public class WebRTCView extends ViewGroup {
             }
 
             this.streamURL = streamURL;
+            // The hold follows whichever stream the view shows.
+            updateAudioHold();
 
             // After realizing/applying the change in the value of
             // this.streamURL, reflect it on the value of videoTrack.
             setVideoTrack(videoTrack);
         });
+    }
+
+    /**
+     * Sets whether the remote audio of the stream this view shows is silent.
+     */
+    void setMuted(boolean muted) {
+        this.muted = muted;
+        updateAudioHold();
+    }
+
+    /**
+     * Lets go of this view's hold on its stream's audio, as the view goes away.
+     */
+    void releaseAudioHold() {
+        muted = false;
+        updateAudioHold();
+    }
+
+    /**
+     * Holds the remote audio of the stream this view shows while the view is muted, and lets it
+     * play again after.
+     */
+    private void updateAudioHold() {
+        String held = muted ? streamURL : null;
+        if (Objects.equals(held, audioHeldStreamURL)) {
+            return;
+        }
+
+        WebRTCModule module = ((ReactContext) getContext()).getNativeModule(WebRTCModule.class);
+        String released = audioHeldStreamURL;
+        audioHeldStreamURL = module != null ? held : null;
+        if (module == null) {
+            return;
+        }
+        if (released != null) {
+            module.setRemoteAudioOfStreamHeld(released, false);
+        }
+        if (held != null) {
+            module.setRemoteAudioOfStreamHeld(held, true);
+        }
     }
 
     /**

@@ -75,6 +75,26 @@ public class RTCVideoViewManager
     }
 
     /**
+     * Sets whether the remote audio of the stream a specific {@link WebRTCView} shows is silent.
+     * For more details, refer to the documentation of the {@code muted} property of the JavaScript
+     * counterpart of {@code WebRTCView} i.e. {@code RTCView}.
+     *
+     * @param view The {@code WebRTCView} on which the flag is to be set.
+     * @param muted Whether the stream's remote audio is silent.
+     */
+    @Override
+    public void setMuted(WebRTCView view, boolean muted) {
+        view.setMuted(muted);
+    }
+
+    @Override
+    public void onDropViewInstance(WebRTCView view) {
+        // The view's hold on its stream's audio ends with the view.
+        view.releaseAudioHold();
+        super.onDropViewInstance(view);
+    }
+
+    /**
      * Sets the z-order of a specific {@link WebRTCView} in the stacking space of
      * all {@code WebRTCView}s. For more details, refer to the documentation of
      * the {@code zOrder} property of the JavaScript counterpart of

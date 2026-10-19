@@ -18,6 +18,7 @@
 #import "RCTConvert+WebRTC.h"
 #import "SerializeUtils.h"
 #import "WebRTCModule+RTCDataChannel.h"
+#import "WebRTCModule+RTCMediaStream.h"
 #import "WebRTCModule+RTCPeerConnection.h"
 #import "WebRTCModule+VideoTrackAdapter.h"
 #import "WebRTCModule.h"
@@ -353,7 +354,8 @@ int _transceiverNextId = 0;
         }
     }
 
-    // Clean up peerConnection's streams and tracks
+    // Clean up peerConnection's streams and tracks, and what holds kept of its audio
+    [self forgetHeldRemoteAudioOfPeerConnection:objectID];
     [peerConnection.remoteStreams removeAllObjects];
     [peerConnection.remoteTracks removeAllObjects];
 
@@ -935,6 +937,11 @@ int _transceiverNextId = 0;
             [streams addObject:[SerializeUtils streamToJSONWithPeerConnectionId:peerConnection.reactTag
                                                                          stream:stream
                                                                  streamReactTag:streamReactTag]];
+        }
+
+        // An audio track that joins a held stream is held with it.
+        if ([track.kind isEqualToString:kRTCMediaStreamTrackKindAudio]) {
+            [self updateHoldOfRemoteAudioTrack:(RTCAudioTrack *)track peerConnectionId:peerConnection.reactTag];
         }
 
         params[@"streams"] = streams;

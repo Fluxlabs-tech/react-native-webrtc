@@ -64,6 +64,18 @@ interface RTCVideoViewBaseProps extends ViewProps {
    */
   zOrder?: number;
   /**
+   * Silences the remote audio of the stream this view shows, as a video element's `muted` does.
+   * Remote audio plays whether or not a view shows its stream, so this is how a player mutes it.
+   *
+   * The audio plays again when `muted` turns false, when the view shows another stream, and when
+   * the view goes away. Audio tracks that join the stream meanwhile are silent too, and a track
+   * whose `enabled` is set meanwhile takes that state when the audio plays again. With more than
+   * one view on a stream, it stays silent while any of them is muted.
+   *
+   * Defaults to false.
+   */
+  muted?: boolean;
+  /**
    * Indicates whether this view can manage Picture in Picture.
    * Only one view should be allowed to manage Picture in Picture
    * Defaults to false.
