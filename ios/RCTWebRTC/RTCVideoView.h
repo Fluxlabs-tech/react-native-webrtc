@@ -57,6 +57,12 @@ typedef void (^RTCVideoViewEventBlock)(NSDictionary *body);
 @property(nonatomic, strong) API_AVAILABLE(ios(15.0)) PIPController *pipController;
 
 /**
+ * Silences the remote audio of the stream this view shows, until it is NO again, the view shows
+ * another stream, or the view goes away.
+ */
+@property(nonatomic) BOOL muted;
+
+/**
  * The {@link RRTCVideoRenderer} which implements the actual rendering.
  */
 #if TARGET_OS_OSX

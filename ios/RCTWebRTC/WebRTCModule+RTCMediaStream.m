@@ -21,6 +21,16 @@ static NSString *HeldAudioKey(NSNumber *pcId, NSString *trackId) {
     return [NSString stringWithFormat:@"%@/%@", pcId, trackId];
 }
 
+/** Whether the stream has the audio track. By ID: the wrappers WebRTC hands out for a track differ. */
+static BOOL StreamHasAudioTrack(RTCMediaStream *stream, NSString *trackId) {
+    for (RTCAudioTrack *track in stream.audioTracks) {
+        if ([track.trackId isEqualToString:trackId]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 @implementation WebRTCModule (RTCMediaStream)
 
 - (VideoEffectProcessor *)videoEffectProcessor {
@@ -459,8 +469,7 @@ static NSString *HeldAudioKey(NSNumber *pcId, NSString *trackId) {
     NSMutableDictionary<NSString *, NSNumber *> *heldAudio = [self heldRemoteAudio];
     NSString *heldKey = HeldAudioKey(pcId, trackID);
     if (heldAudio[heldKey]) {
-        // A paused picture-in-picture window holds the track silent: it takes this state when the
-        // window plays.
+        // A hold keeps the track silent: it takes this state when the hold ends.
         heldAudio[heldKey] = @(enabled);
         return;
     }
@@ -546,7 +555,7 @@ static NSString *HeldAudioKey(NSNumber *pcId, NSString *trackId) {
     capturer.delegate = self.videoEffectProcessor;
 }
 
-#pragma mark - Picture-in-picture
+#pragma mark - Remote audio holds
 
 /** Remote audio tracks held silent, keyed by HeldAudioKey: whether each is enabled when the hold ends. */
 - (NSMutableDictionary<NSString *, NSNumber *> *)heldRemoteAudio {
@@ -558,20 +567,69 @@ static NSString *HeldAudioKey(NSNumber *pcId, NSString *trackId) {
     return heldAudio;
 }
 
+/** How many holds each stream's remote audio has, keyed by the stream's react tag. */
+- (NSMutableDictionary<NSString *, NSNumber *> *)remoteAudioHolds {
+    NSMutableDictionary *holds = objc_getAssociatedObject(self, _cmd);
+    if (!holds) {
+        holds = [NSMutableDictionary new];
+        objc_setAssociatedObject(self, _cmd, holds, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return holds;
+}
+
 - (void)setRemoteAudioOfStream:(NSString *)streamReactTag held:(BOOL)held {
-    NSMutableDictionary<NSString *, NSNumber *> *heldAudio = [self heldRemoteAudio];
+    NSMutableDictionary<NSString *, NSNumber *> *holds = [self remoteAudioHolds];
+    NSUInteger count = holds[streamReactTag].unsignedIntegerValue;
+    if (held) {
+        holds[streamReactTag] = @(count + 1);
+    } else if (count > 1) {
+        holds[streamReactTag] = @(count - 1);
+    } else {
+        [holds removeObjectForKey:streamReactTag];
+    }
+
+    // Only the first hold and the last release change what plays.
+    if (held ? count > 0 : count != 1) {
+        return;
+    }
+
     for (NSNumber *pcId in self.peerConnections) {
         RTCMediaStream *stream = self.peerConnections[pcId].remoteStreams[streamReactTag];
         for (RTCAudioTrack *track in stream.audioTracks) {
-            NSString *key = HeldAudioKey(pcId, track.trackId);
-            NSNumber *enabledAfterHold = heldAudio[key];
-            if (held && !enabledAfterHold) {
-                heldAudio[key] = @(track.isEnabled);
-                track.isEnabled = NO;
-            } else if (!held && enabledAfterHold) {
-                [heldAudio removeObjectForKey:key];
-                track.isEnabled = enabledAfterHold.boolValue;
-            }
+            [self updateHoldOfRemoteAudioTrack:track peerConnectionId:pcId];
+        }
+    }
+}
+
+- (void)updateHoldOfRemoteAudioTrack:(RTCAudioTrack *)track peerConnectionId:(NSNumber *)pcId {
+    // Held while any held stream of its peer connection has it: a track can be in more than one.
+    NSDictionary<NSString *, RTCMediaStream *> *streams = self.peerConnections[pcId].remoteStreams;
+    BOOL held = NO;
+    for (NSString *streamReactTag in [self remoteAudioHolds]) {
+        if (StreamHasAudioTrack(streams[streamReactTag], track.trackId)) {
+            held = YES;
+            break;
+        }
+    }
+
+    NSMutableDictionary<NSString *, NSNumber *> *heldAudio = [self heldRemoteAudio];
+    NSString *key = HeldAudioKey(pcId, track.trackId);
+    NSNumber *enabledAfterHold = heldAudio[key];
+    if (held && !enabledAfterHold) {
+        heldAudio[key] = @(track.isEnabled);
+        track.isEnabled = NO;
+    } else if (!held && enabledAfterHold) {
+        [heldAudio removeObjectForKey:key];
+        track.isEnabled = enabledAfterHold.boolValue;
+    }
+}
+
+- (void)forgetHeldRemoteAudioOfPeerConnection:(NSNumber *)pcId {
+    NSString *prefix = HeldAudioKey(pcId, @"");
+    NSMutableDictionary<NSString *, NSNumber *> *heldAudio = [self heldRemoteAudio];
+    for (NSString *key in heldAudio.allKeys) {
+        if ([key hasPrefix:prefix]) {
+            [heldAudio removeObjectForKey:key];
         }
     }
 }

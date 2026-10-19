@@ -21,8 +21,8 @@
 @implementation RTCVideoView {
     NSString *_streamURL;
     /** The picture-in-picture window has the video paused, so the stream's remote audio is silent. */
-    BOOL _holdsAudio;
-    /** The stream whose remote audio is held silent. */
+    BOOL _pictureInPicturePaused;
+    /** The stream whose remote audio this view holds silent. */
     NSString *_audioHeldStreamURL;
 }
 
@@ -73,7 +73,7 @@
         }
     }
 
-    // A paused window's hold on the stream's audio ends with the view.
+    // The view's hold on the stream's audio ends with the view.
     NSString *held = _audioHeldStreamURL;
     WebRTCModule *module = _module;
     if (held && module) {
@@ -342,7 +342,7 @@
 
 - (void)setStreamURL:(NSString *)streamURL {
     _streamURL = [streamURL copy];
-    // A paused window holds whichever stream the view shows.
+    // The hold follows whichever stream the view shows.
     [self updateAudioHold];
 
     if (!streamURL) {
@@ -370,12 +370,17 @@
     });
 }
 
+- (void)setMuted:(BOOL)muted {
+    _muted = muted;
+    [self updateAudioHold];
+}
+
 /**
- * Silences the stream's remote audio while the picture-in-picture window has the video paused, as
- * a player's pause would, and lets it play again after.
+ * Silences the stream's remote audio while the view is muted, or while the picture-in-picture window
+ * has the video paused, as a player's pause would, and lets it play again after.
  */
 - (void)updateAudioHold {
-    NSString *streamURL = _holdsAudio ? _streamURL : nil;
+    NSString *streamURL = (_muted || _pictureInPicturePaused) ? _streamURL : nil;
     if (streamURL == _audioHeldStreamURL || [streamURL isEqualToString:_audioHeldStreamURL]) {
         return;
     }
@@ -406,7 +411,7 @@
 }
 
 - (void)didChangePictureInPicturePlaying:(BOOL)playing {
-    _holdsAudio = !playing;
+    _pictureInPicturePaused = !playing;
     [self updateAudioHold];
     if (self.onPictureInPicturePlayingChange) {
         self.onPictureInPicturePlayingChange(@{@"playing" : @(playing)});

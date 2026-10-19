@@ -93,6 +93,10 @@ using namespace facebook::react;
         _videoView.pictureInPicturePreferredSize = CGSizeMake(newSize.width, newSize.height);
     }
 
+    if (oldViewProps.muted != newViewProps.muted) {
+        _videoView.muted = newViewProps.muted;
+    }
+
     if (oldViewProps.streamURL != newViewProps.streamURL) {
         NSString *streamURL =
             newViewProps.streamURL.empty() ? nil : [NSString stringWithUTF8String:newViewProps.streamURL.c_str()];

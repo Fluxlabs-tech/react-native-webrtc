@@ -466,6 +466,9 @@ class PeerConnectionObserver implements PeerConnection.Observer {
                 streams.pushMap(SerializeUtils.serializeStream(id, streamReactTag, stream));
             }
 
+            // An audio track that joins a held stream is held with it.
+            webRTCModule.remoteAudioHolds.onTrackAdded(id, this, track);
+
             params.putArray("streams", streams);
             params.putMap("receiver", SerializeUtils.serializeReceiver(id, receiver));
             params.putInt("transceiverOrder", getNextTransceiverId());

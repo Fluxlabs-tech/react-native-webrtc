@@ -14,7 +14,7 @@ Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It start
 Install it under the upstream name, so imports and native project names do not change:
 
 ```sh
-yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.1.2
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.2.0
 ```
 
 ### Picture-in-picture
@@ -45,6 +45,17 @@ import { RTCView, isInPictureInPicture, isPictureInPictureSupported } from 'reac
 - `pictureInPictureKind="videoCall"` uses the video call's window instead, which has no controls: Apple meant it for a call. It takes the screen's shape, unless `pictureInPicturePreferredSize` gives one (only its shape counts: the system picks the size), and shows the view's children until the video has a frame.
 
 Android needs `android:supportsPictureInPicture="true"` on the activity, `configChanges` that include `screenSize|smallestScreenSize|screenLayout`, and compileSdk 36 (androidx.activity 1.13). While in PiP the activity is paused, and React Native does not run JS timers for a paused activity. iOS needs iOS 15 and the `audio` background mode. The Expo config plugin's `pictureInPicture` option sets both up.
+
+### Muting
+
+```tsx
+<RTCView streamURL={streamURL} muted={muted} />
+```
+
+- `muted` silences the remote audio of the stream the view shows, as a video element's does. Remote audio plays whether or not a view shows its stream, so this is how a player mutes it, with no tracks to find.
+- The audio plays again when `muted` turns false, when the view shows another stream, and when the view goes away.
+- Audio tracks that join the stream while it is muted are silent too, as when the server renegotiates. A track whose `enabled` is set meanwhile takes that state when the audio plays again.
+- With more than one view on a stream, it stays silent while any of them is muted, or, on iOS, while a picture-in-picture window stopped on it.
 
 ### Livestreaming
 
