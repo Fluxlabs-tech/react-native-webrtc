@@ -1,8 +1,6 @@
 package com.oney.WebRTCModule;
 
-import android.app.Activity;
 import android.content.Context;
-import android.os.Build;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
@@ -981,15 +979,14 @@ public class WebRTCModule extends NativeWebRTCModuleSpec {
     }
 
     /**
-     * Whether the activity is in picture-in-picture. For the moment the app is backgrounded:
-     * Android pauses the activity into PiP, so AppState reports "background" while the video is
-     * still on screen, and that can reach JS before the view's onPictureInPictureChange does.
+     * Whether the activity is in picture-in-picture or entering it. For the moment the app is
+     * backgrounded: Android pauses the activity into PiP, so AppState reports "background" while
+     * the video is still on screen, and that can reach JS before the view's
+     * onPictureInPictureChange does.
      */
     @Override
     public boolean isInPictureInPicture() {
-        Activity activity = getCurrentActivity();
-        return activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-                && activity.isInPictureInPictureMode();
+        return PictureInPictureController.isInPictureInPicture(getCurrentActivity());
     }
 
     /**

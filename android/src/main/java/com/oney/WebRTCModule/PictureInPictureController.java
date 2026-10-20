@@ -1,7 +1,9 @@
 package com.oney.WebRTCModule;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AppOpsManager;
+import android.app.KeyguardManager;
 import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -10,6 +12,7 @@ import android.graphics.Rect;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.Process;
 import android.util.Log;
 import android.util.Rational;
@@ -63,6 +66,9 @@ import java.util.Set;
  * - The source rect hint and aspect ratio follow the view's layout, so the system animates from
  *   exactly the video on screen into a window of the same shape.
  *
+ * Android 12 and 13 pause an activity that enters PiP by itself before telling it it is in PiP,
+ * so for a moment a pause into PiP looks like any other. See {@link #startEntering}.
+ *
  * Only one view manages the activity's PiP at a time: the most recently enabled one.
  */
 final class PictureInPictureController {
@@ -92,6 +98,13 @@ final class PictureInPictureController {
      */
     private static final long PLACEHOLDER_TIMEOUT_MS = 1000;
 
+    /**
+     * How long a pause taken for PiP starting waits for the system to say so, at normal animation
+     * speed. The system moves the task into PiP before it pauses the activity, and tells the
+     * activity as the animation into the window ends: 0.05 to 0.6 s after the pause on Android 13.
+     */
+    private static final long ENTERING_TIMEOUT_MS = 2000;
+
     private enum Layout {
         /** The renderer is inside its WebRTCView. */
         INLINE,
@@ -105,6 +118,10 @@ final class PictureInPictureController {
 
     /** Enabled, attached controllers, oldest first. The last one owns the activity's PiP. */
     private static final List<WeakReference<PictureInPictureController>> controllers = new ArrayList<>();
+
+    /** The controller whose activity is entering PiP, for {@link #isInPictureInPicture}. */
+    @Nullable
+    private static volatile PictureInPictureController enteringController;
 
     private final WebRTCView view;
     private final SurfaceViewRenderer renderer;
@@ -144,6 +161,12 @@ final class PictureInPictureController {
     private boolean inPictureInPicture;
     /** PiP has ended; the next lifecycle event says whether the user returned or dismissed it. */
     private boolean exitPending;
+
+    // PiP is starting, but the activity does not say so yet. Guarded by this: JS reads them.
+    private boolean entering;
+    /** {@link #isInPictureInPicture} has answered yes because of {@link #entering}. */
+    private boolean enteringReported;
+    private final Runnable enteringTimeout = () -> stopEntering(true, true);
 
     // The params last handed to the activity, so layout passes do not repeat the binder call.
     @Nullable
@@ -198,6 +221,22 @@ final class PictureInPictureController {
                 ? appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_PICTURE_IN_PICTURE, uid, packageName)
                 : appOps.checkOpNoThrow(AppOpsManager.OPSTR_PICTURE_IN_PICTURE, uid, packageName);
         return mode == AppOpsManager.MODE_ALLOWED;
+    }
+
+    /**
+     * Whether the activity is in PiP or entering it. Called on the JS thread, for the moment
+     * AppState reports the app backgrounded: the activity has paused, and on Android 12 and 13 a
+     * pause into PiP does not show in {@link Activity#isInPictureInPictureMode} yet.
+     */
+    static boolean isInPictureInPicture(@Nullable Activity activity) {
+        if (activity == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return false;
+        }
+        if (activity.isInPictureInPictureMode()) {
+            return true;
+        }
+        PictureInPictureController controller = enteringController;
+        return controller != null && controller.reportEntering();
     }
 
     // Props
@@ -265,6 +304,8 @@ final class PictureInPictureController {
             }
             if (!enterPictureInPictureMode(target, params)) {
                 exitPipLayout();
+            } else if (!target.isInPictureInPictureMode()) {
+                startEntering();
             }
         });
     }
@@ -294,6 +335,7 @@ final class PictureInPictureController {
 
         controllers.add(new WeakReference<>(this));
         if (previous != null) {
+            previous.stopEntering(false, false);
             previous.exitPipLayoutNow(previous.view.isAttachedToWindow());
         }
         onOwnershipGained();
@@ -307,6 +349,8 @@ final class PictureInPictureController {
         boolean wasOwner = isOwner();
         boolean rejected = paramsRejected;
 
+        // The view is going away or no longer handles PiP: nothing left to report to.
+        stopEntering(false, false);
         exitPipLayoutNow(reattachRenderer);
 
         released.removeOnPictureInPictureModeChangedListener(onModeChanged);
@@ -393,12 +437,21 @@ final class PictureInPictureController {
         }
         if (enterPictureInPictureMode(target, currentParams())) {
             enterPipLayout(true, null);
+            if (!target.isInPictureInPictureMode()) {
+                startEntering();
+            }
         }
     }
 
     private void onPictureInPictureModeChanged(boolean isInPictureInPicture) {
         ComponentActivity current = activity;
-        if (current == null || !isOwner() || inPictureInPicture == isInPictureInPicture) {
+        if (current == null || !isOwner()) {
+            return;
+        }
+        if (isInPictureInPicture) {
+            stopEntering(false, false);
+        }
+        if (inPictureInPicture == isInPictureInPicture) {
             return;
         }
         inPictureInPicture = isInPictureInPicture;
@@ -432,9 +485,12 @@ final class PictureInPictureController {
                 // Pausing into PiP: on some versions this comes before the mode change.
                 if (current.isInPictureInPictureMode()) {
                     enterPipLayout(true, null);
+                } else if (isAutoEnteringUnannounced(current)) {
+                    startEntering();
                 }
                 break;
             case ON_RESUME:
+                stopEntering(true, false);
                 resolvePendingExit(false);
                 // A PiP layout without PiP, e.g. entering was refused.
                 if (!current.isInPictureInPictureMode()) {
@@ -444,6 +500,7 @@ final class PictureInPictureController {
             case ON_STOP:
                 resolvePendingExit(true);
                 if (!current.isInPictureInPictureMode()) {
+                    stopEntering(true, true);
                     exitPipLayout();
                 }
                 break;
@@ -458,6 +515,83 @@ final class PictureInPictureController {
         }
         exitPending = false;
         listener.onPictureInPictureChange(false, dismissed);
+    }
+
+    // Entering
+
+    /**
+     * Whether this pause is most likely the system starting PiP by itself, before it says so.
+     *
+     * Android 12 and 13 move the task into PiP, pause the activity and only then tell it it is in
+     * PiP; Android 14 tells it before the pause. With automatic entry on, a pause with the screen
+     * on and unlocked is almost always that. The exceptions, like a translucent activity on top,
+     * are corrected when the activity resumes or stops, or by the timeout.
+     */
+    private boolean isAutoEnteringUnannounced(Activity activity) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+                || Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                || !Boolean.TRUE.equals(appliedAutoEnter) || paramsRejected || activity.isFinishing()
+                || activity.isChangingConfigurations() || !isSupported(activity)) {
+            return false;
+        }
+        // Not the screen turning off or locking, which pauses it too.
+        PowerManager power = (PowerManager) activity.getSystemService(Context.POWER_SERVICE);
+        KeyguardManager keyguard = (KeyguardManager) activity.getSystemService(Context.KEYGUARD_SERVICE);
+        return (power == null || power.isInteractive()) && (keyguard == null || !keyguard.isKeyguardLocked());
+    }
+
+    /**
+     * Takes PiP as started before the activity says so, for {@link #isInPictureInPicture}: AppState
+     * reports the pause to JS as "background", and the view's own event comes only with the mode
+     * change.
+     */
+    private void startEntering() {
+        Log.d(TAG, "Picture-in-picture is starting; the activity does not say so yet.");
+        synchronized (this) {
+            entering = true;
+            enteringReported = false;
+        }
+        enteringController = this;
+        // Slower animations, from the developer options, delay the word as much.
+        float animationScale = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? ValueAnimator.getDurationScale() : 1f;
+        mainHandler.removeCallbacks(enteringTimeout);
+        mainHandler.postDelayed(enteringTimeout, (long) (ENTERING_TIMEOUT_MS * Math.max(1f, animationScale)));
+    }
+
+    /**
+     * Ends {@link #startEntering}.
+     *
+     * @param failed PiP did not start. If JS was told it had, the view reports it over, as a
+     *     closing window would.
+     */
+    private void stopEntering(boolean failed, boolean dismissed) {
+        boolean reported;
+        synchronized (this) {
+            if (!entering) {
+                return;
+            }
+            entering = false;
+            reported = enteringReported;
+            enteringReported = false;
+        }
+        if (enteringController == this) {
+            enteringController = null;
+        }
+        mainHandler.removeCallbacks(enteringTimeout);
+        if (failed) {
+            Log.d(TAG, "Picture-in-picture did not start.");
+        }
+        if (failed && reported) {
+            listener.onPictureInPictureChange(false, dismissed);
+        }
+    }
+
+    /** On the JS thread: whether PiP is starting, noting that JS now takes it as started. */
+    private synchronized boolean reportEntering() {
+        if (entering) {
+            enteringReported = true;
+        }
+        return entering;
     }
 
     // Params

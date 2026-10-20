@@ -171,9 +171,11 @@ function isPictureInPictureSupported(): Promise<boolean> {
 }
 
 /**
- * Whether a Picture-in-Picture window is showing right now. Synchronous, for the moment the app
- * goes to the background: AppState then reports "background" whether or not the video is still
- * on screen in Picture-in-Picture, and the view's onPictureInPictureChange can arrive after it.
+ * Whether a Picture-in-Picture window is showing right now, or opening. Synchronous, for the
+ * moment the app goes to the background: AppState then reports "background" whether or not the
+ * video is still on screen in Picture-in-Picture, and the view's onPictureInPictureChange can
+ * arrive after it. On Android 12 and 13 a window that then fails to open is reported closed by
+ * onPictureInPictureChange.
  */
 function isInPictureInPicture(): boolean {
     if (typeof WebRTCModule.isInPictureInPicture !== 'function') {
