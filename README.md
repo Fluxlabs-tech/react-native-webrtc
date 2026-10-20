@@ -14,7 +14,7 @@ Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It start
 Install it under the upstream name, so imports and native project names do not change:
 
 ```sh
-yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.2.0
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.2.1
 ```
 
 ### Picture-in-picture
@@ -38,7 +38,7 @@ import { RTCView, isInPictureInPicture, isPictureInPictureSupported } from 'reac
 
 - `ref.current?.startPictureInPicture()` enters on request.
 - `isPictureInPictureSupported()` resolves `false` when the device lacks PiP or the user turned it off for the app.
-- `isInPictureInPicture()` answers synchronously. On Android, AppState reports `background` as soon as the activity pauses into PiP, sometimes before `onPictureInPictureChange` arrives.
+- `isInPictureInPicture()` answers synchronously. On Android, AppState reports `background` as soon as the activity pauses into PiP, sometimes before `onPictureInPictureChange` arrives. Android 12 and 13 pause it before they say it is in PiP, so there a pause with automatic entry on, the screen on and unlocked counts as PiP starting. If no window follows, `onPictureInPictureChange` reports it closed: `dismissed` when the app stopped or two seconds passed, not when it came back.
 - One view manages PiP at a time: the most recently enabled one. Automatic entry waits for a video track, and on iOS for the view to be on screen: a view on a screen the app has moved away from does not start the window.
 - On iOS the video floats in the system player's window, as live video does, with the system's controls in its own look (Liquid Glass from iOS 26): a LIVE badge and the live bar, stop and play, and the buttons to close the window and to return to the app. Its skip buttons are greyed out, as a live stream has nothing to skip to. The window takes the video's shape, upright and mirrored as the view shows it.
 - Stopping there holds the last frame and silences the stream's remote audio; play goes back to live. Closing the window with the app in the background stops it too, as the system's own players do, and returning to the app plays it. The stream still arrives while stopped: `onPictureInPicturePlayingChange` says when, so an app can end it over a long stop.
