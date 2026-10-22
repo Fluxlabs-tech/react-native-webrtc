@@ -1,9 +1,10 @@
 name: Release
 
 # Publishes the package when master's package.json has a version that isn't on
-# npm yet, then tags the commit and creates the GitHub release. npm accepts the
-# publish through trusted publishing (OIDC): the package's settings on npmjs.com
-# trust this file, release.yml, in the npm environment, so no npm token is stored.
+# npm yet and the commit passes lint and the Android and iOS builds, then tags the
+# commit and creates the GitHub release. npm accepts the publish through trusted
+# publishing (OIDC): the package's settings on npmjs.com trust this file,
+# release.yml, in the npm environment, so no npm token is stored.
 
 on:
   push:
@@ -80,9 +81,27 @@ jobs:
         path: '*.tgz'
         if-no-files-found: error
 
+  # Android CI and iOS CI, run again on this commit, so that nothing is published
+  # from a commit whose example app doesn't build.
+  android:
+    name: Android CI
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/android_ci.yml
+
+  ios:
+    name: iOS CI
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ios_ci.yml
+
   publish:
     name: Publish to npm
-    needs: [ check, build ]
+    needs: [ check, build, android, ios ]
     runs-on: ubuntu-latest
     environment:
       name: npm
