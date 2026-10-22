@@ -26,11 +26,17 @@ jobs:
 
     - name: Install node modules
       run: npm install
-    
+
+    # The library is New Architecture only and needs React Native 0.76 or later. GumTestApp,
+    # upstream's example, is on 0.71, so CI builds LivestreamExample, on 0.86.
     - name: Install example node modules
-      run: npm install
-      working-directory: ./examples/GumTestApp/
+      run: npm ci
+      working-directory: ./examples/LivestreamExample/
+
+    - name: Generate the example's native project
+      run: npx expo prebuild --platform android --no-install
+      working-directory: ./examples/LivestreamExample/
 
     - name: Compile Android Example
-      run: ./gradlew assembleDebug
-      working-directory: ./examples/GumTestApp/android
+      run: ./gradlew assembleDebug -PreactNativeArchitectures=arm64-v8a
+      working-directory: ./examples/LivestreamExample/android
