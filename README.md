@@ -5,8 +5,8 @@
 Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It starts from [react-native-webrtc#1710](https://github.com/react-native-webrtc/react-native-webrtc/pull/1710) by [@EdgarJMesquita](https://github.com/EdgarJMesquita), reworked so the transition is seamless:
 
 - The video replaces the screen as the transition starts (Android 15+ reports it; earlier versions when the activity pauses into PiP), so the shrink animation shows the video, not the controls drawn over it.
-- A still of the last frame covers the moved video surface until it draws again, so there is no black flash.
-- The PiP window takes the video's shape and animates from where the video is on screen.
+- A still of the last frame covers the moved video surface until it draws again, then fades out, so there is no black flash and no hard cut. It sits where the view is drawn, transforms included.
+- The PiP window takes the video's shape. With `objectFit="contain"` it animates from where the video is on screen; with `cover` from the whole window, since Android refuses a source smaller than the PiP window (a view scaled into a small preview, say) and animates the app's icon instead.
 - Leaving the app starts PiP on Android 8 and later; `startPictureInPicture()` starts it on request.
 
 ### Install
@@ -14,7 +14,7 @@ Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It start
 Install it under the upstream name, so imports and native project names do not change:
 
 ```sh
-yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.2.1
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.2.2
 ```
 
 ### Picture-in-picture

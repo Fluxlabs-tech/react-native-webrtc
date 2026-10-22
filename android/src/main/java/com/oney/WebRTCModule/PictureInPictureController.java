@@ -97,6 +97,7 @@ final class PictureInPictureController {
      * that has stalled keeps its last frame on screen for this long instead of going black.
      */
     private static final long PLACEHOLDER_TIMEOUT_MS = 1000;
+    private static final long PLACEHOLDER_FADE_MS = 150;
 
     /**
      * How long a pause taken for PiP starting waits for the system to say so, at normal animation
@@ -712,17 +713,19 @@ final class PictureInPictureController {
         View video = view.getScalingType() == ScalingType.SCALE_ASPECT_FIT && renderer.getParent() == view
                 ? renderer
                 : view;
+        ViewGroup window = video == view ? contentRoot() : null;
+        View source = window != null ? window : video;
         Rect rect = new Rect();
         // Window coordinates, clipped to what is on screen...
-        if (!video.getGlobalVisibleRect(rect) || rect.isEmpty()) {
+        if (!source.getGlobalVisibleRect(rect) || rect.isEmpty()) {
             return null;
         }
         // ...moved to screen coordinates, which is what the system animates from when the window
         // does not start at the top of the screen.
         int[] inWindow = new int[2];
         int[] onScreen = new int[2];
-        video.getLocationInWindow(inWindow);
-        video.getLocationOnScreen(onScreen);
+        source.getLocationInWindow(inWindow);
+        source.getLocationOnScreen(onScreen);
         rect.offset(onScreen[0] - inWindow[0], onScreen[1] - inWindow[1]);
         return cropToAspectRatio(rect, aspectRatio);
     }
@@ -886,13 +889,14 @@ final class PictureInPictureController {
         if (view.getWidth() == 0 || view.getHeight() == 0) {
             return null;
         }
+        Rect visible = new Rect();
+        if (!view.getGlobalVisibleRect(visible) || visible.isEmpty()) {
+            return null;
+        }
         int[] rootLocation = new int[2];
-        int[] viewLocation = new int[2];
         root.getLocationInWindow(rootLocation);
-        view.getLocationInWindow(viewLocation);
-        int left = viewLocation[0] - rootLocation[0];
-        int top = viewLocation[1] - rootLocation[1];
-        return new Rect(left, top, left + view.getWidth(), top + view.getHeight());
+        visible.offset(-rootLocation[0], -rootLocation[1]);
+        return visible;
     }
 
     // Snapshots
@@ -952,7 +956,7 @@ final class PictureInPictureController {
         placeholderFrameListener = ignored -> mainHandler.post(() -> {
             if (placeholder == image) {
                 placeholderFrameDrawn = true;
-                removePlaceholder();
+                fadeOutPlaceholder(image);
             }
         });
         placeholderTimeout = () -> {
@@ -962,6 +966,18 @@ final class PictureInPictureController {
         };
         renderer.addFrameListener(placeholderFrameListener, 0f);
         mainHandler.postDelayed(placeholderTimeout, PLACEHOLDER_TIMEOUT_MS);
+    }
+
+    private void fadeOutPlaceholder(ImageView image) {
+        if (placeholderTimeout != null) {
+            mainHandler.removeCallbacks(placeholderTimeout);
+            placeholderTimeout = null;
+        }
+        image.animate().alpha(0f).setDuration(PLACEHOLDER_FADE_MS).withEndAction(() -> {
+            if (placeholder == image) {
+                removePlaceholder();
+            }
+        });
     }
 
     private void removePlaceholder() {
@@ -978,6 +994,7 @@ final class PictureInPictureController {
             placeholderFrameListener = null;
         }
         if (placeholder != null) {
+            placeholder.animate().cancel();
             ViewParent parent = placeholder.getParent();
             if (parent instanceof ViewGroup) {
                 SharedWindow.removePipView((ViewGroup) parent, placeholder);
