@@ -11,7 +11,7 @@ on:
 
 jobs:
   ios-compile:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
@@ -20,34 +20,31 @@ jobs:
         cache: 'npm'
         cache-dependency-path: '**/package-lock.json'
 
-    - name: Cache cocoapods
-      uses: actions/cache@v3
-      with:
-        path: ./examples/GumTestApp/ios/Pods
-        key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-pods-
-
     - name: Install node modules
       run: npm install
 
+    # The library is New Architecture only and needs React Native 0.76 or later. GumTestApp,
+    # upstream's example, is on 0.71, so CI builds LivestreamExample, on 0.86.
     - name: Install example node modules
-      working-directory: ./examples/GumTestApp/
-      run: npm install
+      working-directory: ./examples/LivestreamExample/
+      run: npm ci
+
+    - name: Generate the example's native project
+      working-directory: ./examples/LivestreamExample/
+      run: npx expo prebuild --platform ios --no-install
 
     - name: Pod install
-      working-directory: ./examples/GumTestApp/ios
+      working-directory: ./examples/LivestreamExample/ios
       run: pod install
 
     - name: Compile iOS Example
-      working-directory: ./examples/GumTestApp/ios
+      working-directory: ./examples/LivestreamExample/ios
       run: |
-        set -o pipefail && \
-        xcodebuild -workspace GumTestApp.xcworkspace/ \
-          -scheme GumTestApp \
+        xcodebuild -workspace WebRTCLivestream.xcworkspace \
+          -scheme WebRTCLivestream \
           -destination generic/platform=iOS \
+          -quiet \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGN_ENTITLEMENTS="" \
-          CODE_SIGNING_ALLOWED="NO" clean build \
-        | xcpretty
+          CODE_SIGNING_ALLOWED="NO" clean build
