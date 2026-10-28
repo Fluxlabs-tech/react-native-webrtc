@@ -122,6 +122,24 @@ interface RTCVideoViewBaseProps extends ViewProps {
    * Defaults to true.
    */
   autoStopPictureInPicture?: boolean;
+  /**
+   * Puts the video in Picture in Picture over another app the app opens itself, like a UPI app for
+   * a payment, which the system's own Picture in Picture misses. It closes when this turns false
+   * and when the viewer comes back to the app. onPictureInPictureChange reports it as usual.
+   *
+   * Android: the window opens when this turns true with the app in front and the view showing a
+   * video, once each time it turns true. The video shows in a window of its own, with the app still
+   * full screen behind it. An activity the app opens next in its own task, like a UPI app started
+   * for a result, opens under the window, where the app's own Picture in Picture would take it
+   * inside the window or end. The system starts that one only when the app leaves for another task.
+   * Needs Android 8.
+   *
+   * iOS: the window starts as the app leaves, as it does by itself for a view on screen, but also
+   * for a view a screen of the app's own covers. Needs pictureInPictureEnabled.
+   *
+   * Defaults to false.
+   */
+  floatingPictureInPicture?: boolean;
 }
 
 interface NativeVideoViewProps extends RTCVideoViewBaseProps {

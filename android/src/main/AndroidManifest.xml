@@ -6,6 +6,18 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application>
+        <!-- A picture-in-picture window of an RTCView's own (FloatingPictureInPicture). It starts in
+             the app's task, so it keeps the app's task affinity and launch mode, and gets a task of
+             its own as it enters picture-in-picture. Translucent, so the app under it does not stop
+             for the moment before. -->
+        <activity
+                android:name="com.oney.WebRTCModule.PictureInPictureWindowActivity"
+                android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation|uiMode|density"
+                android:excludeFromRecents="true"
+                android:exported="false"
+                android:resizeableActivity="true"
+                android:supportsPictureInPicture="true"
+                android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <service
                 android:name=".MediaProjectionService"
                 android:foregroundServiceType="mediaProjection">

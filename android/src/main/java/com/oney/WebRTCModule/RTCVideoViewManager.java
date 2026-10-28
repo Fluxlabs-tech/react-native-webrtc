@@ -89,8 +89,9 @@ public class RTCVideoViewManager
 
     @Override
     public void onDropViewInstance(WebRTCView view) {
-        // The view's hold on its stream's audio ends with the view.
+        // The view's hold on its stream's audio ends with the view, and so does a window of its own.
         view.releaseAudioHold();
+        view.releaseFloatingPictureInPicture();
         super.onDropViewInstance(view);
     }
 
@@ -152,6 +153,15 @@ public class RTCVideoViewManager
      */
     @Override
     public void setPictureInPictureKind(WebRTCView view, @Nullable String kind) {}
+
+    /**
+     * Sets whether the video shows in a picture-in-picture window of its own, with the app full
+     * screen behind it. See {@link FloatingPictureInPicture}.
+     */
+    @Override
+    public void setFloatingPictureInPicture(WebRTCView view, boolean floating) {
+        view.setFloatingPictureInPicture(floating);
+    }
 
     @Override
     public void startPictureInPicture(WebRTCView view) {

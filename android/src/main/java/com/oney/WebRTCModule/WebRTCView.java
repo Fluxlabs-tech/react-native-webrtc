@@ -2,15 +2,18 @@ package com.oney.WebRTCModule;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Point;
+import android.os.Build;
 import android.util.Log;
 import android.util.Rational;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.core.view.ViewCompat;
 
 import com.facebook.react.bridge.Callback;
@@ -165,6 +168,12 @@ public class WebRTCView extends ViewGroup {
      */
     private final PictureInPictureController pictureInPicture;
 
+    /**
+     * Picture-in-picture in a window of this view's own, off until the
+     * {@code floatingPictureInPicture} prop turns it on.
+     */
+    private final FloatingPictureInPicture floatingPictureInPicture;
+
     public WebRTCView(Context context) {
         super(context);
 
@@ -172,6 +181,7 @@ public class WebRTCView extends ViewGroup {
         addView(surfaceViewRenderer);
         pictureInPicture =
                 new PictureInPictureController(this, surfaceViewRenderer, this::dispatchPictureInPictureChange);
+        floatingPictureInPicture = new FloatingPictureInPicture(this, this::dispatchPictureInPictureChange);
 
         setMirror(false);
         setScalingType(DEFAULT_SCALING_TYPE);
@@ -249,6 +259,7 @@ public class WebRTCView extends ViewGroup {
             }
             tryAddRendererToVideoTrack();
             pictureInPicture.onAttachedToWindow();
+            floatingPictureInPicture.onAttachedToWindow();
         } finally {
             super.onAttachedToWindow();
         }
@@ -588,6 +599,7 @@ public class WebRTCView extends ViewGroup {
                 }
             }
             pictureInPicture.onVideoChanged();
+            floatingPictureInPicture.onVideoTrackChanged();
         }
     }
 
@@ -684,6 +696,21 @@ public class WebRTCView extends ViewGroup {
         return videoTrack != null;
     }
 
+    @Nullable
+    VideoTrack getVideoTrack() {
+        return videoTrack;
+    }
+
+    boolean isMirror() {
+        return mirror;
+    }
+
+    /** The params a window of this view's own opens with: its PiP's shape and starting point. */
+    @RequiresApi(Build.VERSION_CODES.O)
+    PictureInPictureParams pictureInPictureWindowParams() {
+        return pictureInPicture.windowParams();
+    }
+
     /**
      * Puts {@link #surfaceViewRenderer} back in this view after picture-in-picture moved it into
      * the window.
@@ -733,6 +760,16 @@ public class WebRTCView extends ViewGroup {
 
     void enterPictureInPicture() {
         pictureInPicture.enterPictureInPicture();
+    }
+
+    /** Sets whether the video shows in a picture-in-picture window of its own. */
+    void setFloatingPictureInPicture(boolean floating) {
+        floatingPictureInPicture.setRequested(floating);
+    }
+
+    /** The view is gone: a window of its own closes with it. */
+    void releaseFloatingPictureInPicture() {
+        floatingPictureInPicture.release();
     }
 
     private void dispatchDimensionsChange(int width, int height) {

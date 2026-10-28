@@ -57,6 +57,15 @@ API_AVAILABLE(ios(15.0))
 - (void)togglePIP;
 - (void)startPIP;
 - (void)stopPIP;
+/**
+ * Has the window start as the app leaves, as for a UPI app the app opens itself for a payment, even
+ * with this view off screen under a screen of the app's own: the system starts one only from a
+ * layer in a window, so the player's layer goes in the app's window, behind everything there, until
+ * stopFloating. The window closes as usual when the app comes back.
+ */
+- (void)startFloating;
+/** Ends startFloating: closes the window if it is still up, and puts the layer back. */
+- (void)stopFloating;
 - (void)insertFallbackView:(UIView *)subview;
 - (void)setObjectFit:(RTCVideoViewObjectFit)fit;
 /**
