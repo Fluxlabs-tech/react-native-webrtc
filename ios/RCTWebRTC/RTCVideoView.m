@@ -185,6 +185,23 @@
     }
 }
 
+- (void)setFloatingPictureInPicture:(BOOL)floatingPictureInPicture {
+    if (_floatingPictureInPicture != floatingPictureInPicture) {
+        _floatingPictureInPicture = floatingPictureInPicture;
+        if (@available(iOS 15.0, *)) {
+            [self applyFloatingPictureInPicture];
+        }
+    }
+}
+
+- (void)API_AVAILABLE(ios(15.0))applyFloatingPictureInPicture {
+    if (_floatingPictureInPicture) {
+        [_pipController startFloating];
+    } else {
+        [_pipController stopFloating];
+    }
+}
+
 - (void)setPictureInPicturePreferredSize:(CGSize)pictureInPicturePreferredSize {
     if (!CGSizeEqualToSize(_pictureInPicturePreferredSize, pictureInPicturePreferredSize)) {
         _pictureInPicturePreferredSize = pictureInPicturePreferredSize;
@@ -218,6 +235,10 @@
     _pipController.startAutomatically = _autoStartPictureInPicture;
     _pipController.stopAutomatically = _autoStopPictureInPicture;
     _pipController.objectFit = _objectFit;
+    // A controller made after the request still floats; one that floats already does nothing new.
+    if (_floatingPictureInPicture) {
+        [_pipController startFloating];
+    }
 }
 
 - (void)API_AVAILABLE(ios(15.0))discardPictureInPictureController {

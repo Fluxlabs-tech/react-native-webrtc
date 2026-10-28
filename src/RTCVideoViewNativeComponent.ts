@@ -28,6 +28,7 @@ export interface NativeProps extends ViewProps {
     autoStopPictureInPicture?: WithDefault<boolean, true>;
     pictureInPicturePreferredSize?: PictureInPictureSize;
     pictureInPictureKind?: WithDefault<'playback' | 'videoCall', 'playback'>;
+    floatingPictureInPicture?: WithDefault<boolean, false>;
     onDimensionsChange?: DirectEventHandler<Readonly<{ width: Int32; height: Int32 }>>;
     onPictureInPictureChange?: DirectEventHandler<Readonly<{ isInPictureInPicture: boolean; dismissed: boolean }>>;
     onPictureInPicturePlayingChange?: DirectEventHandler<Readonly<{ playing: boolean }>>;

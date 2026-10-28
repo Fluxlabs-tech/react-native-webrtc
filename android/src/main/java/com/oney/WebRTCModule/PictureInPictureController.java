@@ -225,11 +225,15 @@ final class PictureInPictureController {
     }
 
     /**
-     * Whether the activity is in PiP or entering it. Called on the JS thread, for the moment
-     * AppState reports the app backgrounded: the activity has paused, and on Android 12 and 13 a
-     * pause into PiP does not show in {@link Activity#isInPictureInPictureMode} yet.
+     * Whether the activity is in PiP or entering it, or a window of a view's own shows. Called on
+     * the JS thread, for the moment AppState reports the app backgrounded: the activity has paused,
+     * and on Android 12 and 13 a pause into PiP does not show in
+     * {@link Activity#isInPictureInPictureMode} yet.
      */
     static boolean isInPictureInPicture(@Nullable Activity activity) {
+        if (FloatingPictureInPicture.isShowing()) {
+            return true;
+        }
         if (activity == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             return false;
         }
@@ -624,6 +628,16 @@ final class PictureInPictureController {
         appliedAspectRatio = null;
         appliedSourceRectHint = null;
         appliedAutoEnter = null;
+    }
+
+    /**
+     * Params for a window of the view's own ({@link FloatingPictureInPicture}): the same shape,
+     * growing out of the same part of the screen. Already in PiP, it never enters by itself.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    PictureInPictureParams windowParams() {
+        Rational aspectRatio = aspectRatio();
+        return buildParams(aspectRatio, sourceRectHint(aspectRatio), false);
     }
 
     @RequiresApi(Build.VERSION_CODES.O)

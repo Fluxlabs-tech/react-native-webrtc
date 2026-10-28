@@ -33,6 +33,10 @@
     BOOL _startAutomaticallyRequested;
     /** Discarded: offers, shows and draws nothing again. */
     BOOL _invalidated;
+    /** startFloating is in effect, until stopFloating. */
+    BOOL _floatingRequested;
+    /** The player's view is in the app's window, lent there for startFloating. */
+    BOOL _playbackViewLent;
 }
 
 /** Every live controller, held weakly, for isAnyPictureInPictureActive. */
@@ -152,6 +156,7 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 }
 
 - (void)sourceViewDidMoveToWindow {
+    [self updatePlaybackViewPlacement];
     [self updateRendering];
     [self updateStartAutomatically];
 }
@@ -163,7 +168,7 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
  */
 - (void)updateRendering {
     _playbackView.rendering = _starting || _pipController.isPictureInPictureActive ||
-                              (!_inBackground && self.sourceView.window != nil);
+                              (!_inBackground && (self.sourceView.window != nil || _playbackViewLent));
 }
 
 /**
@@ -172,7 +177,8 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
  * more than one of an app's controllers offering, iOS starts none (SpringBoard's "ShouldAutoPiP: NO").
  */
 - (void)updateStartAutomatically {
-    BOOL offer = !_invalidated && _startAutomaticallyRequested && self.sourceView.window != nil;
+    BOOL offer = !_invalidated && (_startAutomaticallyRequested || _floatingRequested) &&
+                 (self.sourceView.window != nil || _playbackViewLent);
     if (_pipController.canStartPictureInPictureAutomaticallyFromInline != offer) {
         _pipController.canStartPictureInPictureAutomaticallyFromInline = offer;
     }
@@ -289,6 +295,96 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
     }
 }
 
+- (void)startFloating {
+    if (_invalidated || _floatingRequested) {
+        return;
+    }
+    _floatingRequested = YES;
+    [self updatePlaybackViewPlacement];
+    [self updateRendering];
+    [self updateStartAutomatically];
+}
+
+- (void)stopFloating {
+    if (!_floatingRequested) {
+        return;
+    }
+    _floatingRequested = NO;
+    // A window still up when the app is done with it closes, as on Android; its didStop puts the
+    // layer back.
+    [self stopPIP];
+    [self updatePlaybackViewPlacement];
+    [self updateRendering];
+    [self updateStartAutomatically];
+}
+
+/**
+ * While startFloating is in effect and this view is off screen, the player's view goes in the app's
+ * window, behind everything there: the system starts a window as the app leaves only from a layer
+ * in one, and calls to start one from the app itself fail while the layer is out of sight. Never
+ * while a window has the layer.
+ */
+- (void)updatePlaybackViewPlacement {
+    if (_starting || _pipController.isPictureInPictureActive) {
+        return;
+    }
+    BOOL lend = _floatingRequested && !_invalidated && _kind == PIPControllerKindPlayback &&
+                self.sourceView.window == nil;
+    if (lend) {
+        [self lendPlaybackView];
+    } else {
+        [self returnPlaybackView];
+    }
+}
+
+/** The app's window in front, where the player's view goes while its own view is off screen. */
+- (UIWindow *)appWindow {
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (scene.activationState != UISceneActivationStateForegroundActive ||
+            ![scene isKindOfClass:UIWindowScene.class]) {
+            continue;
+        }
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        if (windowScene.keyWindow) {
+            return windowScene.keyWindow;
+        }
+        for (UIWindow *window in windowScene.windows) {
+            if (window.isKeyWindow) {
+                return window;
+            }
+        }
+    }
+    return nil;
+}
+
+/**
+ * Behind everything in the window and as big as it, as the live was: the system starts its window
+ * only from a layer that fills the screen, and grows it out of there.
+ */
+- (void)lendPlaybackView {
+    UIWindow *window = [self appWindow];
+    if (_playbackViewLent || !window) {
+        return;
+    }
+    _playbackViewLent = YES;
+    _playbackView.frame = window.bounds;
+    [window insertSubview:_playbackView atIndex:0];
+}
+
+- (void)returnPlaybackView {
+    if (!_playbackViewLent) {
+        return;
+    }
+    _playbackViewLent = NO;
+    UIView *sourceView = self.sourceView;
+    if (sourceView) {
+        _playbackView.frame = sourceView.bounds;
+        [sourceView insertSubview:_playbackView atIndex:0];
+    } else {
+        [_playbackView removeFromSuperview];
+    }
+}
+
 - (void)setPaused:(BOOL)paused {
     if (_paused == paused) {
         return;
@@ -307,6 +403,8 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
         return;
     }
     _invalidated = YES;
+    _floatingRequested = NO;
+    _playbackViewLent = NO;
 
     // Withdrawn first: the system may go on holding this controller, but no longer counts it.
     _pipController.canStartPictureInPictureAutomaticallyFromInline = NO;
@@ -349,7 +447,9 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
 - (void)pictureInPictureController:(AVPictureInPictureController *)pictureInPictureController
     failedToStartPictureInPictureWithError:(NSError *)error {
     _starting = NO;
+    [self updatePlaybackViewPlacement];
     [self updateRendering];
+    [self updateStartAutomatically];
     NSLog(@"Picture-in-picture failed to start: %@", error.localizedDescription);
 }
 
@@ -358,7 +458,9 @@ static NSHashTable<PIPController *> *PIPControllerInstances(void) {
     BOOL dismissed = _inBackground && !_restoring && !_stopping;
     _restoring = NO;
     _stopping = NO;
+    [self updatePlaybackViewPlacement];
     [self updateRendering];
+    [self updateStartAutomatically];
     // AVKit gives the layer back as it took it; the view may have changed size meanwhile.
     [_playbackView setNeedsLayout];
 

@@ -39,6 +39,12 @@ typedef void (^RTCVideoViewEventBlock)(NSDictionary *body);
 
 @property(nonatomic, assign) CGSize pictureInPicturePreferredSize;
 
+/**
+ * Has picture-in-picture start as the app leaves for another app it opens itself, even with this
+ * view off screen. Needs pictureInPictureEnabled. See PIPController's startFloating.
+ */
+@property(nonatomic) BOOL floatingPictureInPicture;
+
 /** The system window picture-in-picture uses: the player's, by default, or the video call's. */
 @property(nonatomic, assign) PIPControllerKind pictureInPictureKind;
 

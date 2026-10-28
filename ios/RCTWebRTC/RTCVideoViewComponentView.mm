@@ -87,6 +87,11 @@ using namespace facebook::react;
         _videoView.autoStopPictureInPicture = newViewProps.autoStopPictureInPicture;
     }
 
+    // After pictureInPictureEnabled, which makes the controller it starts.
+    if (oldViewProps.floatingPictureInPicture != newViewProps.floatingPictureInPicture) {
+        _videoView.floatingPictureInPicture = newViewProps.floatingPictureInPicture;
+    }
+
     const auto &oldSize = oldViewProps.pictureInPicturePreferredSize;
     const auto &newSize = newViewProps.pictureInPicturePreferredSize;
     if (oldSize.width != newSize.width || oldSize.height != newSize.height) {
