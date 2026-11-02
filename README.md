@@ -1,8 +1,8 @@
-> **This is `@fluxlabs/react-native-webrtc`**, a fork of [react-native-webrtc](https://github.com/react-native-webrtc/react-native-webrtc) 155.0.0 that adds seamless picture-in-picture on Android and the system player's picture-in-picture on iOS. The sections after this one are upstream's README.
+> **This is `@fluxlabs/react-native-webrtc`**, a fork of [react-native-webrtc](https://github.com/react-native-webrtc/react-native-webrtc) 155.0.1 that adds seamless picture-in-picture on Android and the system player's picture-in-picture on iOS. The sections after this one are upstream's README.
 
 ## About this fork
 
-Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It starts from [react-native-webrtc#1710](https://github.com/react-native-webrtc/react-native-webrtc/pull/1710) by [@EdgarJMesquita](https://github.com/EdgarJMesquita), reworked so the transition is seamless:
+Upstream **155.0.1**, plus picture-in-picture for `RTCView` on Android. It starts from [react-native-webrtc#1710](https://github.com/react-native-webrtc/react-native-webrtc/pull/1710) by [@EdgarJMesquita](https://github.com/EdgarJMesquita), reworked so the transition is seamless:
 
 - The video replaces the screen as the transition starts (Android 15+ reports it; earlier versions when the activity pauses into PiP), so the shrink animation shows the video, not the controls drawn over it.
 - A still of the last frame covers the moved video surface until it draws again, then fades out, so there is no black flash and no hard cut. It sits where the view is drawn, transforms included.
@@ -14,7 +14,7 @@ Upstream **155.0.0**, plus picture-in-picture for `RTCView` on Android. It start
 Install it under the upstream name, so imports and native project names do not change:
 
 ```sh
-yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.2.2
+yarn add react-native-webrtc@npm:@fluxlabs/react-native-webrtc@155.3.2
 ```
 
 ### Picture-in-picture
@@ -264,11 +264,12 @@ This fork runs on the New Architecture only, React Native 0.76 or later: `WebRTC
 An Android release build shrunk by R8 needs no rules of its own: the library's consumer rules (`android/consumer-rules.pro`) keep what libwebrtc's native code reaches by name.
 
 - `org.webrtc.**`, in full.
-- From M155, the methods and fields that jni_zero, libwebrtc's JNI layer, marks `@CalledByNative`, `@CalledByNativeUnchecked` or `@AccessedByNative`. Loading the library calls one of them, `org.jni_zero.JniZero.init`.
+- `org.jni_zero.**`, in full: from M155, jni_zero is libwebrtc's JNI layer.
+- The methods and fields that jni_zero marks `@CalledByNative`, `@CalledByNativeUnchecked` or `@AccessedByNative`, in any class. Loading the library calls one of them, `org.jni_zero.JniZero.init`.
 - `J.N`, where M155 declares the native methods its Java classes call.
-- `-dontwarn org.webrtc.Dav1dDecoder$Natives`: the M155 build refers to that class but does not ship it.
+- `-dontwarn org.webrtc.Dav1dDecoder$Natives`: the M155 build refers to that class but does not ship it. And `-dontwarn org.jni_zero.**`.
 
-Before 155.1.1 the rules kept `org.webrtc.**` only. R8 then failed on `Dav1dDecoder$Natives`, and an app whose own rules silenced that crashed as WebRTC loaded, in `JNI_OnLoad`, with `JNI DETECTED ERROR IN APPLICATION: java_class == null in call to GetStaticMethodID`. Upstream 155.0.0 has the same rules. Debug builds are not shrunk, so they never show it.
+Before 155.1.1 the rules kept `org.webrtc.**` only. R8 then failed on `Dav1dDecoder$Natives`, and an app whose own rules silenced that crashed as WebRTC loaded, in `JNI_OnLoad`, with `JNI DETECTED ERROR IN APPLICATION: java_class == null in call to GetStaticMethodID`. Upstream 155.0.0 had the same rules; 155.0.1 added `org.jni_zero.**`, `J.N` and the `org.jni_zero` dontwarn. Debug builds are not shrunk, so they never show it.
 
 ### Performance
 
