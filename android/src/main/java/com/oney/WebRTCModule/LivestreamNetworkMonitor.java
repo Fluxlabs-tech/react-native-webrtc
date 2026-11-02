@@ -75,6 +75,15 @@ final class LivestreamNetworkMonitor {
             Log.w(TAG, "LivestreamNetworkMonitor: cannot follow the network", e);
             state = null;
         }
+
+        // JS reads the state straight after asking for this, but a void TurboModule method runs
+        // later, on the native modules thread, so that read finds none; and the callbacks report
+        // only changes from the state set here. Sent now, as iOS's path monitor sends its first
+        // path, or JS would not know the network until it changed. Under the lock, so a change
+        // the callbacks report comes after it.
+        if (state != null) {
+            listener.onChange(state.toMap());
+        }
     }
 
     synchronized void stop() {
