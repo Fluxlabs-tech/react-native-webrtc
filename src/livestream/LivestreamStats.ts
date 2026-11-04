@@ -16,6 +16,15 @@ export type InboundVideoStats = {
     /** Share of the frames received over the interval dropped before display. */
     droppedPercent: number;
     /**
+     * Keyframes decoded per minute over the interval: the sender's keyframe interval as it arrives
+     * here (30 for a keyframe every 2 s), plus any a lost frame asked for.
+     */
+    keyFramesPerMinute: number;
+    /** Average time the decoder took per frame over the interval, in milliseconds. */
+    decodeMs: number;
+    /** The decoder in use, as libwebrtc names it (`decoderImplementation`), or null if unreported. */
+    decoder: string | null;
+    /**
      * A frame has been decoded since video started, or since it resumed after a pause on purpose:
      * there is a picture, which can stand still.
      */
@@ -347,6 +356,9 @@ function summarize(
             jitterBufferMs: bufferMs(inboundVideo),
             frozenPercent,
             droppedPercent,
+            keyFramesPerMinute: seconds > 0 ? (60 * delta(inboundVideo, 'keyFramesDecoded')) / seconds : 0,
+            decodeMs: decoded > 0 ? (1000 * delta(inboundVideo, 'totalDecodeTime')) / decoded : 0,
+            decoder: inboundVideo.decoderImplementation ?? null,
             // Set by the sampler, which follows the picture from one interval to the next.
             started: false,
             freezesEnded: stopsCount ? Math.max(0, delta(inboundVideo, 'freezeCount')) : 0,
