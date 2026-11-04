@@ -16,6 +16,14 @@ export type LivestreamWatchVideoSummary = {
     kbps: number;
     lossPercent: number;
     droppedPercent: number;
+    /**
+     * While the picture moved: keyframes decoded per minute (30 for a keyframe every 2 s), and the
+     * decoder's time per frame in milliseconds.
+     */
+    keyFramesPerMinute: number;
+    decodeMs: number;
+    /** The decoder libwebrtc last reported (`decoderImplementation`), or null. */
+    decoder: string | null;
     /** How long frames waited to be shown: how far behind their arrival the picture plays. */
     jitterBufferMs: LivestreamPercentiles;
     /** Short stops: a frame far later than the ones before it. */
@@ -175,6 +183,9 @@ export default class LivestreamWatchReport {
     private readonly videoKbps = new Distribution();
     private readonly videoLoss = new Distribution();
     private readonly dropped = new Distribution();
+    private readonly keyFrames = new Distribution();
+    private readonly decode = new Distribution();
+    private videoDecoder: string | null = null;
     private readonly videoBuffer = new Distribution();
     private freezes = 0;
     private stalls = 0;
@@ -242,6 +253,9 @@ export default class LivestreamWatchReport {
                 kbps: this.videoKbps.mean(),
                 lossPercent: this.videoLoss.mean(),
                 droppedPercent: this.dropped.mean(),
+                keyFramesPerMinute: this.keyFrames.mean(),
+                decodeMs: this.decode.mean(),
+                decoder: this.videoDecoder,
                 jitterBufferMs: this.videoBuffer.percentiles(),
                 freezes: this.freezes,
                 stalls,
@@ -287,6 +301,7 @@ export default class LivestreamWatchReport {
 
         this.videoSeconds += seconds;
         this.videoCodec = video.codec ?? this.videoCodec;
+        this.videoDecoder = video.decoder ?? this.videoDecoder;
         this.height.add(video.height, seconds);
         this.videoKbps.add(video.kbps, seconds);
         this.videoLoss.add(video.lossPercent, seconds);
@@ -295,6 +310,8 @@ export default class LivestreamWatchReport {
         if (!still) {
             this.fps.add(video.fps, seconds);
             this.videoBuffer.add(video.jitterBufferMs, seconds);
+            this.keyFrames.add(video.keyFramesPerMinute, seconds);
+            this.decode.add(video.decodeMs, seconds);
         }
     }
 
